@@ -75,6 +75,16 @@ npm run export-allgemeine-termine-ical
 node allgemeine-termine-ical.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [--non-interactive]
 ```
 
+### 4. Elternbriefe herunterladen
+
+Lädt Elternbriefe (inkl. Anhänge) pro ausgewähltem Kind und speichert sie strukturiert im Ordner `elternbriefe/`.
+
+```bash
+npm run download-elternbriefe
+# oder
+node elternbriefe-download.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [--non-interactive]
+```
+
 ## CLI-Filter & Optionen
 
 - `--school=<short>`: Export nur für bestimmte Schule(n) (mehrfach verwendbar)
@@ -96,6 +106,8 @@ Die Skripte legen pro Kind JSON-Dateien an, z. B. `bekannte-schulaufgaben_klas
 - Unterstützung von Mehrtages-Terminen und exakten Uhrzeiten
 - Trennung zwischen Schulaufgabenterminen und allgemeinen Terminen
 - Konfigurierbare Dateinamen (Klasse + Name des Kindes)
+- CLI-Filter für zielgerichtete Exporte
+- Elternbriefe-Exporte (TXT + PDF) auf Basis derselben Konfiguration
 
 Die erzeugten ICS-Dateien lassen sich in gängigen Kalender-Apps (Apple Kalender, Google Kalender usw.) importieren. Teile den Kalender bei Bedarf mit deiner Familie oder importiere ihn pro Nutzer separat, damit Erinnerungen zuverlässig auf allen Geräten auftauchen.
 
