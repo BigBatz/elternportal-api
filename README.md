@@ -8,7 +8,7 @@ This library provides an easy-to-use interface for interacting with the ElternPo
 - **Kid Management**: Set and retrieve information about children linked to the account
 - **School Information**: Fetch various details about the school
 - **Announcements**: Get updates from the school's bulletin board (Schwarzes Brett)
-- **Calendar**: Retrieve school events and schedules
+- **Calendar**: Retrieve school events and schedules (inkl. Schulaufgaben und allgemeine Termine)
 - **Parent Letters**: Access and download parent letters (Elternbriefe)
 - **Lost and Found**: View items in the lost and found section
 - **Exam Schedules**: Get the dates of upcoming exams
@@ -92,6 +92,12 @@ const letterFile = await client.getElternbrief(letterId);
 const examSchedule = await client.getSchulaufgabenplan();
 ```
 
+#### Get general school events 🗓️
+
+```typescript
+const generalEvents = await client.getAllgemeineTermine();
+```
+
 #### Get substitute plan 🔄
 
 ```typescript
@@ -104,7 +110,19 @@ The library includes TypeScript definitions for various data structures:
 
 - `SchoolInfo`
 - `Termin` (Calendar Event)
+- `Schulaufgabe` (Exam entry with time range support)
+- `AllgemeinerTermin`
 - `Elternbrief` (Parent Letter)
 - `SchwarzesBrettBox` (Bulletin Board Item)
 - `ElternportalFile`
 - `Vertretungsplan`
+
+## ICS Export Utility ✨
+
+Under `examples/` you'll find CLI scripts that build on the API to export calendar data as iCal/ICS files (feature requested in [issue #3](https://github.com/philippdormann/elternportal-api/issues/3)). They support:
+
+- Multiple schools/kids via a single config file
+- Separate exports for Schulaufgaben vs. allgemeine Termine
+- CLI filters (`--school`, `--kid`, `--kidName`, `--non-interactive`)
+
+Take a look at `examples/README.md` for detailed usage instructions.

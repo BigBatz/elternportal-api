@@ -1,146 +1,429 @@
 // schulaufgaben-ical.js
-import { getElternportalClient } from "@philippdormann/elternportal-api";
+import { getElternportalClient, generateICalendar } from "@philippdormann/elternportal-api";
 import fs from "fs/promises";
-import config from './config.js';
-import crypto from 'crypto';
+import readline from "readline";
+import { stdin as input, stdout as output } from "process";
+import config from "./config.js";
 
-// Funktion zum Erstellen einer iCal-Datei aus Schulaufgaben
+const cliOptions = parseCliOptions(process.argv.slice(2));
+
 async function createSchulaufgabenICS() {
-  try {
-    console.log("Verbinde mit dem Elternportal...");
-    
-    // Verbindung zum Elternportal herstellen
-    const client = await getElternportalClient({
-      short: config.short,
-      username: config.username,
-      password: config.password
-    });
-    
-    console.log("✅ Anmeldung erfolgreich!");
-    
-    // Kinderinformationen abrufen
-    const kids = await client.getKids();
-    if (!kids || kids.length === 0) {
-      throw new Error("Keine Kinderinformationen gefunden");
-    }
-    
-    // Verwende das erste Kind (oder lass den Benutzer wählen, wenn mehrere vorhanden sind)
-    const kid = kids[0];
-    const childName = kid.firstName; // Nur Vorname verwenden
-    const className = kid.className;
-    
-    console.log(`Kind: ${childName}, Klasse: ${className}`);
-    
-    // Schulaufgabenplan abrufen
-    const schulaufgaben = await client.getSchulaufgabenplan();
-    console.log(`${schulaufgaben.length} Schulaufgaben gefunden.`);
-    
-    // Bekannte Schulaufgaben laden
-    let knownExams = [];
-    try {
-      const data = await fs.readFile('bekannte-schulaufgaben.json', 'utf8');
-      knownExams = JSON.parse(data);
-      console.log(`${knownExams.length} bekannte Schulaufgaben geladen.`);
-    } catch (error) {
-      console.log("Keine bekannten Schulaufgaben gefunden, erstelle neue Datei.");
-    }
-    
-    // Neue Schulaufgaben filtern
-    const newExams = schulaufgaben.filter(exam => 
-      !knownExams.some(known => known.id === exam.id)
+  const accounts = normalizeConfigs(config).filter(shouldIncludeAccount);
+
+  if (accounts.length === 0) {
+    console.warn("Keine passenden Schul-Accounts in config.js gefunden.");
+    return;
+  }
+
+  for (const account of accounts) {
+    const schoolIdentifier = account.short;
+    const schoolDisplayName =
+      account.schoolName || account.displayName || schoolIdentifier;
+
+    console.log(
+      `\n===============================\nSchule: ${schoolDisplayName} (${schoolIdentifier})\n===============================`
     );
-    
-    console.log(`${newExams.length} neue Schulaufgaben gefunden.`);
-    
-    if (newExams.length > 0) {
-      // iCal-Datei erstellen mit Kindernamen und Klassenbezeichnung
-      let icsContent = 
-        "BEGIN:VCALENDAR\r\n" +
-        "VERSION:2.0\r\n" +
-        "PRODID:-//Elternportal//Schulaufgaben//DE\r\n" +
-        "METHOD:PUBLISH\r\n" +
-        `X-WR-CALNAME:Schulaufgaben ${childName} (${className})\r\n` +
-        "X-APPLE-CALENDAR-COLOR:#FF9500\r\n";
-      
-      // Jeden neuen Termin hinzufügen
-      for (let i = 0; i < newExams.length; i++) {
-        const exam = newExams[i];
-        console.log(`Verarbeite Schulaufgabe ${i + 1}/${newExams.length}: ${exam.title}`);
-        
-        try {
-          // Datum aus der API nehmen, aber Zeit auf 9:00 Uhr setzen
-          const examDate = new Date(exam.date);
-          examDate.setHours(9, 0, 0, 0);
-          
-          // Formatiere Datum im iCal-Format (YYYYMMDDTHHMMSSZ)
-          const startDate = formatDateForICS(examDate);
-          
-          // Erstelle ein Enddatum (1 Stunde später)
-          const endDate = formatDateForICS(new Date(examDate.getTime() + 60*60*1000));
-          
-          // Erstelle Zeitstempel für jetzt
-          const now = formatDateForICS(new Date());
-          
-          // Erstelle eine eindeutige UID basierend auf Datum und Titel
-          const uniqueString = `${exam.date}-${exam.title}-${kid.id}`;
-          const hash = crypto.createHash('md5').update(uniqueString).digest('hex');
-          const uid = `${hash}@${config.short}.elternportal`;
-          
-          icsContent += "BEGIN:VEVENT\r\n";
-          icsContent += `UID:${uid}\r\n`;
-          icsContent += `DTSTAMP:${now}\r\n`;
-          icsContent += `DTSTART;VALUE=DATE-TIME:${startDate}\r\n`;
-          icsContent += `DTEND;VALUE=DATE-TIME:${endDate}\r\n`;
-          icsContent += `SUMMARY:${exam.title} (${className})\r\n`;
-          icsContent += `DESCRIPTION:Schulaufgabe für ${childName}, Klasse ${className}. Automatisch erstellt aus dem Elternportal.\r\n`;
-          icsContent += "TRANSP:OPAQUE\r\n";
-          icsContent += "STATUS:CONFIRMED\r\n";
-          
-          // Erinnerung 1 Woche vorher
-          icsContent += "BEGIN:VALARM\r\n";
-          icsContent += "ACTION:DISPLAY\r\n";
-          icsContent += `DESCRIPTION:Erinnerung: ${childName} hat in einer Woche eine Schulaufgabe\r\n`;
-          icsContent += "TRIGGER:-P7D\r\n";
-          icsContent += "END:VALARM\r\n";
-          
-          // Erinnerung 2 Tage vorher
-          icsContent += "BEGIN:VALARM\r\n";
-          icsContent += "ACTION:DISPLAY\r\n";
-          icsContent += `DESCRIPTION:Erinnerung: ${childName} hat in 2 Tagen eine Schulaufgabe\r\n`;
-          icsContent += "TRIGGER:-P2D\r\n";
-          icsContent += "END:VALARM\r\n";
-          
-          icsContent += "END:VEVENT\r\n";
-          
-          console.log(`✅ Schulaufgabe ${i + 1} erfolgreich zur ICS hinzugefügt mit UID: ${uid}`);
-        } catch (error) {
-          console.error(`❌ Fehler beim Verarbeiten von Schulaufgabe ${i + 1}:`, error);
-        }
+
+    try {
+      console.log("Verbinde mit dem Elternportal...");
+
+      const client = await getElternportalClient({
+        short: account.short,
+        username: account.username,
+        password: account.password,
+        kidId: account.kidId,
+      });
+
+      console.log("✅ Anmeldung erfolgreich!");
+
+      const kids = await client.getKids();
+      if (!kids || kids.length === 0) {
+        console.warn("⚠️  Keine Kinderinformationen gefunden, überspringe.");
+        continue;
       }
-      
-      icsContent += "END:VCALENDAR";
-      
-      // iCal-Datei speichern mit Kindernamen im Dateinamen
-      const filename = `schulaufgaben_${childName}_${className}_${new Date().toISOString().slice(0,10)}.ics`;
-      await fs.writeFile(filename, icsContent, 'utf8');
-      console.log(`✅ iCal-Datei "${filename}" erstellt mit ${newExams.length} neuen Schulaufgaben für ${childName}.`);
-      
-      // Alle Schulaufgaben als bekannt speichern
-      await fs.writeFile('bekannte-schulaufgaben.json', JSON.stringify(schulaufgaben), 'utf8');
-    } else {
-      console.log("Keine neuen Schulaufgaben zum Exportieren vorhanden.");
+
+      const selectedKids = await resolveKidsForAccount({
+        kids,
+        account,
+        schoolDisplayName,
+      });
+
+      if (!selectedKids.length) {
+        console.warn(
+          "⚠️  Keine passenden Kinder für diese Konfiguration ausgewählt, überspringe."
+        );
+        continue;
+      }
+
+      for (const kid of selectedKids) {
+        await exportKidCalendar({ client, account, kid, schoolDisplayName });
+      }
+    } catch (error) {
+      console.error(
+        "❌ Fehler beim Erstellen der iCal-Datei für diese Schule:",
+        error
+      );
+      console.error("Details:", error?.message ?? error);
     }
-    
-  } catch (error) {
-    console.error("❌ Fehler beim Erstellen der iCal-Datei:", error);
-    console.error("Details:", error.message);
   }
 }
 
-// Hilfsfunktion zum Formatieren eines Datums für ICS
-function formatDateForICS(date) {
-  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+async function exportKidCalendar({ client, account, kid, schoolDisplayName }) {
+  const kidLabel = formatKidLabel(kid);
+  console.log(`\n--- ${kidLabel} (${kid.className}) ---`);
+
+  if (typeof client.setKid === "function") {
+    await client.setKid(kid.id);
+  }
+
+  const schulaufgaben = await client.getSchulaufgabenplan();
+  const schulaufgabenStatus =
+    typeof client.getSchulaufgabenplanStatus === "function"
+      ? client.getSchulaufgabenplanStatus()
+      : null;
+
+  if (schulaufgabenStatus === "allgemein") {
+    console.log(
+      "ℹ️  Schule liefert aktuell nur allgemeine Termine – Schulaufgaben werden übersprungen."
+    );
+    return;
+  }
+
+  if (schulaufgaben.length === 0) {
+    console.log("ℹ️  Keine Schulaufgaben veröffentlicht, nichts zu exportieren.");
+    return;
+  }
+
+  console.log(`${schulaufgaben.length} Schulaufgaben für den Export vorbereitet.`);
+
+  const baseName = buildFileBaseName({ kid });
+  const knownFile = `bekannte-schulaufgaben_${baseName}.json`;
+  const calendarFile = `schulaufgaben_${baseName}_${new Date()
+    .toISOString()
+    .slice(0, 10)}.ics`;
+
+  let knownExams = [];
+  try {
+    const data = await fs.readFile(knownFile, "utf8");
+    knownExams = JSON.parse(data);
+    console.log(`${knownExams.length} bekannte Schulaufgaben geladen.`);
+  } catch {
+    console.log("Keine bekannten Schulaufgaben gefunden, erstelle neue Datei.");
+  }
+
+  const knownIds = new Set(knownExams.map((exam) => exam.id));
+  const newExams = schulaufgaben.filter((exam) => !knownIds.has(exam.id));
+
+  console.log(`${newExams.length} neue Schulaufgaben gefunden.`);
+
+  if (newExams.length > 0) {
+    const calendarName = `Schulaufgaben ${kid.firstName} (${kid.className}) - ${schoolDisplayName}`;
+    const { ics, count } = generateICalendar(newExams, {
+      calendarName,
+      calendarColor: "#FF9500",
+      schoolIdentifier: account.short,
+      summaryBuilder: (exam) => `${exam.title} (${kid.className} - ${schoolDisplayName})`,
+      descriptionBuilder: (exam) =>
+        `Schulaufgabe für ${
+          [kid.firstName, kid.lastName].filter(Boolean).join(" ")
+        }, Klasse ${kid.className} (${schoolDisplayName}). Automatisch erstellt aus dem Elternportal.`,
+      uidBuilder: (exam) =>
+        `${account.short}-${kid.id}-${exam.id}-${exam.startDate?.toISOString() ?? ""}-${exam.endDate?.toISOString() ?? ""}`,
+      alarms: [
+        {
+          trigger: "-P7D",
+          description: `Erinnerung: ${kid.firstName} hat in einer Woche eine Schulaufgabe`,
+        },
+        {
+          trigger: "-P2D",
+          description: `Erinnerung: ${kid.firstName} hat in 2 Tagen eine Schulaufgabe`,
+        },
+      ],
+      onEvent: (exam, index, total) => {
+        console.log(
+          `Verarbeite Schulaufgabe ${index + 1}/${total}: ${exam.title}`
+        );
+        console.log(
+          `Rohdaten -> Datum: ${exam.rawDate || "(leer)"}, Zeit: ${
+            exam.rawTime || "(leer)"
+          }`
+        );
+      },
+    });
+
+    if (count > 0) {
+      await fs.writeFile(calendarFile, ics, "utf8");
+      console.log(
+        `✅ iCal-Datei "${calendarFile}" erstellt mit ${count} neuen Schulaufgaben für ${kidLabel}.`
+      );
+    } else {
+      console.log("ℹ️  Keine gültigen Schulaufgaben für den Export gefunden.");
+    }
+  } else {
+    console.log("Keine neuen Schulaufgaben zum Exportieren vorhanden.");
+  }
+
+  await fs.writeFile(knownFile, JSON.stringify(schulaufgaben, null, 2), "utf8");
 }
 
-// Skript ausführen
+function normalizeConfigs(rawConfig) {
+  if (!rawConfig) {
+    return [];
+  }
+
+  if (Array.isArray(rawConfig)) {
+    return rawConfig;
+  }
+
+  if (Array.isArray(rawConfig.accounts)) {
+    return rawConfig.accounts;
+  }
+
+  return [rawConfig];
+}
+
+function shouldIncludeAccount(account) {
+  if (!cliOptions.schools.length) {
+    return true;
+  }
+  const candidates = [account.short, account.schoolName, account.displayName]
+    .filter(Boolean)
+    .map((value) => value.toLowerCase());
+  return cliOptions.schools.some((school) => candidates.includes(school));
+}
+
+async function resolveKidsForAccount({ kids, account, schoolDisplayName }) {
+  let selected = [...kids];
+
+  let filteredByCli = false;
+
+  if (Array.isArray(account.kids) && account.kids.length > 0) {
+    selected = uniqueKids(
+      account.kids.flatMap((selector) =>
+        kids.filter((kid) => matchKidSelector(kid, selector))
+      )
+    );
+  }
+
+  if (cliOptions.kidIds.length > 0) {
+    selected = selected.filter((kid) => cliOptions.kidIds.includes(kid.id));
+    filteredByCli = true;
+  }
+
+  if (cliOptions.kidNames.length > 0) {
+    selected = selected.filter((kid) =>
+      cliOptions.kidNames.includes((kid.firstName || "").toLowerCase()) ||
+      cliOptions.kidNames.includes((kid.lastName || "").toLowerCase()) ||
+      cliOptions.kidNames.includes(
+        `${kid.firstName || ""} ${kid.lastName || ""}`
+          .trim()
+          .toLowerCase()
+      )
+    );
+    filteredByCli = true;
+  }
+
+  if (filteredByCli && selected.length === 0) {
+    return [];
+  }
+
+  if (selected.length === 0 && kids.length === 1) {
+    selected = [kids[0]];
+  }
+
+  if (selected.length === 0) {
+    if (cliOptions.nonInteractive) {
+      return [];
+    }
+    selected = await promptForKidSelection({
+      kids,
+      schoolDisplayName,
+      schoolIdentifier: account.short,
+    });
+  }
+
+  return uniqueKids(selected);
+}
+
+function matchKidSelector(kid, selector) {
+  if (selector == null) {
+    return false;
+  }
+
+  if (selector === "all") {
+    return true;
+  }
+
+  if (typeof selector === "number") {
+    return kid.id === selector;
+  }
+
+  if (typeof selector === "string") {
+    const normalized = selector.toLowerCase();
+    return [
+      kid.id?.toString(),
+      kid.firstName?.toLowerCase(),
+      kid.lastName?.toLowerCase(),
+      `${kid.firstName ?? ""} ${kid.lastName ?? ""}`.trim().toLowerCase(),
+      kid.className?.toLowerCase(),
+    ].some((value) => value === normalized);
+  }
+
+  if (typeof selector === "object") {
+    if (
+      selector.id != null &&
+      Number.parseInt(selector.id, 10) !== Number.parseInt(`${kid.id}`, 10)
+    ) {
+      return false;
+    }
+    if (
+      selector.firstName &&
+      selector.firstName.toLowerCase() !== (kid.firstName || "").toLowerCase()
+    ) {
+      return false;
+    }
+    if (
+      selector.lastName &&
+      selector.lastName.toLowerCase() !== (kid.lastName || "").toLowerCase()
+    ) {
+      return false;
+    }
+    if (
+      selector.className &&
+      selector.className.toLowerCase() !== (kid.className || "").toLowerCase()
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+async function promptForKidSelection({
+  kids,
+  schoolDisplayName,
+  schoolIdentifier,
+}) {
+  console.log(
+    `Mehrere Kinder für ${schoolDisplayName} (${schoolIdentifier}) gefunden.`
+  );
+  kids.forEach((kid, index) => {
+    const label = formatKidLabel(kid);
+    console.log(
+      `  [${index + 1}] ${label} - Klasse ${kid.className} (ID: ${kid.id})`
+    );
+  });
+
+  const answer = (
+    await askQuestion(
+      "Bitte die gewünschten Kinder auswählen (z. B. 1 oder 1,3, 'all' für alle, Enter für alle): "
+    )
+  )
+    .trim()
+    .toLowerCase();
+
+  if (answer === "" || answer === "all") {
+    return kids;
+  }
+
+  const selectedIndexes = answer
+    .split(/[,\s]+/)
+    .map((value) => Number.parseInt(value, 10))
+    .filter((value) => !Number.isNaN(value) && value >= 1 && value <= kids.length);
+
+  if (selectedIndexes.length === 0) {
+    console.warn("Keine gültige Auswahl getroffen, überspringe.");
+    return [];
+  }
+
+  return uniqueKids(selectedIndexes.map((index) => kids[index - 1]));
+}
+
+function uniqueKids(list) {
+  const map = new Map();
+  for (const kid of list) {
+    if (kid) {
+      map.set(kid.id, kid);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function askQuestion(query) {
+  const rl = readline.createInterface({ input, output });
+  return new Promise((resolve) =>
+    rl.question(query, (answer) => {
+      rl.close();
+      resolve(answer);
+    })
+  );
+}
+
+function buildFileBaseName({ kid }) {
+  const parts = [kid.className, kid.firstName, kid.lastName];
+  const base = parts
+    .map((value) => sanitizeForFilename(value || ""))
+    .filter(Boolean)
+    .join("_");
+  if (base.length > 0) {
+    return base;
+  }
+  return sanitizeForFilename(`kid-${kid.id || "unbekannt"}`) || "kind";
+}
+
+function sanitizeForFilename(value) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+}
+
+function formatKidLabel(kid) {
+  return [kid.firstName, kid.lastName].filter(Boolean).join(" ") || `Kind ${kid.id}`;
+}
+
+function parseCliOptions(args) {
+  const options = {
+    schools: [],
+    kidIds: [],
+    kidNames: [],
+    nonInteractive: false,
+  };
+
+  for (const arg of args) {
+    if (arg === "--non-interactive") {
+      options.nonInteractive = true;
+      continue;
+    }
+
+    const [key, value] = arg.split("=");
+    if (!value) {
+      continue;
+    }
+
+    const normalizedValue = value.trim();
+    switch (key) {
+      case "--school":
+        options.schools.push(normalizedValue.toLowerCase());
+        break;
+      case "--kid":
+        options.kidIds.push(Number.parseInt(normalizedValue, 10));
+        break;
+      case "--kidName":
+        options.kidNames.push(normalizedValue.toLowerCase());
+        break;
+      default:
+        break;
+    }
+  }
+
+  options.kidIds = options.kidIds.filter((id) => !Number.isNaN(id));
+
+  return options;
+}
+
 createSchulaufgabenICS();

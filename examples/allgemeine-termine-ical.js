@@ -1,12 +1,13 @@
-// anzeige-kind-schule.js
-import { getElternportalClient } from "@philippdormann/elternportal-api";
+// allgemeine-termine-ical.js
+import { getElternportalClient, generateICalendar } from "@philippdormann/elternportal-api";
+import fs from "fs/promises";
 import readline from "readline";
 import { stdin as input, stdout as output } from "process";
 import config from "./config.js";
 
 const cliOptions = parseCliOptions(process.argv.slice(2));
 
-async function main() {
+async function createAllgemeineTermineICS() {
   const accounts = normalizeConfigs(config).filter(shouldIncludeAccount);
 
   if (accounts.length === 0) {
@@ -54,12 +55,28 @@ async function main() {
         continue;
       }
 
+      const allgemeineTermine = await client.getAllgemeineTermine();
+      if (!allgemeineTermine.length) {
+        console.log("ℹ️  Keine allgemeinen Termine veröffentlicht.");
+        continue;
+      }
+
+      console.log(
+        `${allgemeineTermine.length} allgemeine Termine für den Export vorbereitet.`
+      );
+
       for (const kid of selectedKids) {
-        await showKidInfo({ client, kid, schoolDisplayName });
+        await exportKidCalendar({
+          client,
+          account,
+          kid,
+          schoolDisplayName,
+          termine: allgemeineTermine,
+        });
       }
     } catch (error) {
       console.error(
-        "❌ Fehler beim Abrufen der Informationen:",
+        "❌ Fehler beim Erstellen der iCal-Datei für diese Schule:",
         error
       );
       console.error("Details:", error?.message ?? error);
@@ -67,42 +84,81 @@ async function main() {
   }
 }
 
-async function showKidInfo({ client, kid, schoolDisplayName }) {
-  console.log(`\n--- ${formatKidLabel(kid)} (${kid.className}) ---`);
+async function exportKidCalendar({
+  client,
+  account,
+  kid,
+  schoolDisplayName,
+  termine,
+}) {
+  const kidLabel = formatKidLabel(kid);
+  console.log(`\n--- ${kidLabel} (${kid.className}) ---`);
 
   if (typeof client.setKid === "function") {
     await client.setKid(kid.id);
   }
 
-  console.log("\n=== getKids() ===");
-  console.log(JSON.stringify(kid, null, 2));
+  const baseName = buildFileBaseName({ kid });
+  const knownFile = `bekannte-termine_${baseName}.json`;
+  const calendarFile = `termine_${baseName}_${new Date()
+    .toISOString()
+    .slice(0, 10)}.ics`;
 
-  console.log("\n=== getSchoolInfos() ===");
+  let knownEntries = [];
   try {
-    const schoolInfo = await client.getSchoolInfos();
-    console.log(JSON.stringify(schoolInfo, null, 2));
-  } catch (error) {
-    console.error("❌ Fehler bei getSchoolInfos():", error?.message ?? error);
+    const data = await fs.readFile(knownFile, "utf8");
+    knownEntries = JSON.parse(data);
+    console.log(`${knownEntries.length} bekannte Termine geladen.`);
+  } catch {
+    console.log("Keine bekannten Termine gefunden, erstelle neue Datei.");
   }
 
-  const methods = Object.getOwnPropertyNames(
-    Object.getPrototypeOf(client)
-  ).filter((name) => typeof client[name] === "function" && name !== "constructor");
+  const knownIds = new Set(knownEntries.map((entry) => entry.id));
+  const newEntries = termine.filter((entry) => !knownIds.has(entry.id));
 
-  console.log("\nVerfügbare Methoden des Client-Objekts:");
-  console.log(methods.join(", "));
+  console.log(`${newEntries.length} neue Termine gefunden.`);
 
-  if (methods.includes("getProfile")) {
-    console.log("\n=== getProfile() ===");
-    try {
-      const profile = await client.getProfile();
-      console.log(JSON.stringify(profile, null, 2));
-    } catch (error) {
-      console.error("❌ Fehler bei getProfile():", error?.message ?? error);
+  if (newEntries.length > 0) {
+    const calendarName = `Allgemeine Termine ${kid.firstName} (${kid.className}) - ${schoolDisplayName}`;
+    const { ics, count } = generateICalendar(newEntries, {
+      calendarName,
+      calendarColor: "#1E90FF",
+      schoolIdentifier: account.short,
+      summaryBuilder: (termin) => `${termin.title} (${kid.className} - ${schoolDisplayName})`,
+      descriptionBuilder: (termin) =>
+        `Termin für ${
+          [kid.firstName, kid.lastName].filter(Boolean).join(" ")
+        }, Klasse ${kid.className} (${schoolDisplayName}). Automatisch erstellt aus dem Elternportal.`,
+      uidBuilder: (termin) =>
+        `${account.short}-${kid.id}-${termin.id}-${termin.startDate?.toISOString() ?? ""}-${termin.endDate?.toISOString() ?? ""}`,
+      alarms: [
+        {
+          trigger: "-P7D",
+          description: `Erinnerung: ${kid.firstName} hat in einer Woche einen Termin`,
+        },
+        {
+          trigger: "-P2D",
+          description: `Erinnerung: ${kid.firstName} hat in 2 Tagen einen Termin`,
+        },
+      ],
+      onEvent: (termin, index, total) => {
+        console.log(`Verarbeite Termin ${index + 1}/${total}: ${termin.title}`);
+      },
+    });
+
+    if (count > 0) {
+      await fs.writeFile(calendarFile, ics, "utf8");
+      console.log(
+        `✅ iCal-Datei "${calendarFile}" erstellt mit ${count} neuen Terminen für ${kidLabel}.`
+      );
+    } else {
+      console.log("ℹ️  Keine gültigen Termine für den Export gefunden.");
     }
+  } else {
+    console.log("Keine neuen Termine zum Exportieren vorhanden.");
   }
 
-  console.log(`\nFertig für ${formatKidLabel(kid)} (${schoolDisplayName}).`);
+  await fs.writeFile(knownFile, JSON.stringify(termine, null, 2), "utf8");
 }
 
 function normalizeConfigs(rawConfig) {
@@ -133,6 +189,7 @@ function shouldIncludeAccount(account) {
 
 async function resolveKidsForAccount({ kids, account, schoolDisplayName }) {
   let selected = [...kids];
+  let filteredByCli = false;
 
   if (Array.isArray(account.kids) && account.kids.length > 0) {
     selected = uniqueKids(
@@ -144,6 +201,7 @@ async function resolveKidsForAccount({ kids, account, schoolDisplayName }) {
 
   if (cliOptions.kidIds.length > 0) {
     selected = selected.filter((kid) => cliOptions.kidIds.includes(kid.id));
+    filteredByCli = true;
   }
 
   if (cliOptions.kidNames.length > 0) {
@@ -156,6 +214,11 @@ async function resolveKidsForAccount({ kids, account, schoolDisplayName }) {
           .toLowerCase()
       )
     );
+    filteredByCli = true;
+  }
+
+  if (filteredByCli && selected.length === 0) {
+    return [];
   }
 
   if (selected.length === 0 && kids.length === 1) {
@@ -281,6 +344,38 @@ function uniqueKids(list) {
   return Array.from(map.values());
 }
 
+function askQuestion(query) {
+  const rl = readline.createInterface({ input, output });
+  return new Promise((resolve) =>
+    rl.question(query, (answer) => {
+      rl.close();
+      resolve(answer);
+    })
+  );
+}
+
+function buildFileBaseName({ kid }) {
+  const parts = [kid.className, kid.firstName, kid.lastName];
+  const base = parts
+    .map((value) => sanitizeForFilename(value || ""))
+    .filter(Boolean)
+    .join("_");
+  if (base.length > 0) {
+    return base;
+  }
+  return sanitizeForFilename(`kid-${kid.id || "unbekannt"}`) || "kind";
+}
+
+function sanitizeForFilename(value) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+}
+
 function formatKidLabel(kid) {
   return [kid.firstName, kid.lastName].filter(Boolean).join(" ") || `Kind ${kid.id}`;
 }
@@ -325,22 +420,4 @@ function parseCliOptions(args) {
   return options;
 }
 
-function shouldPrompt() {
-  return !cliOptions.nonInteractive;
-}
-
-function askQuestion(query) {
-  if (!shouldPrompt()) {
-    return Promise.resolve("");
-  }
-  const rl = readline.createInterface({ input, output });
-  return new Promise((resolve) =>
-    rl.question(query, (answer) => {
-      rl.close();
-      resolve(answer);
-    })
-  );
-}
-
-main();
-
+createAllgemeineTermineICS();

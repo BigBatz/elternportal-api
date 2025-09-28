@@ -11,3 +11,10 @@ node_modules
 # Logs
 *.log
 
+# Lokale Beispiel-Konfigurationen
+examples/config.js
+
+# Generierte Export-Dateien
+*.ics
+bekannte-*.json
+examples/bekannte-*.json

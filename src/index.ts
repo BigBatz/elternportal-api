@@ -3,6 +3,7 @@ import { wrapper } from "axios-cookiejar-support";
 import { load as cheerioLoad } from "cheerio";
 import { JSDOM } from "jsdom";
 import { CookieJar } from "tough-cookie";
+import crypto from "crypto";
 
 type Kid = {
   id: number;
@@ -23,10 +24,58 @@ type Termin = {
   startDate: Date;
   endDate: Date;
 };
-export type Schulaufgabe = {
+
+type TerminListeKategorie = "schulaufgaben" | "allgemein";
+
+type TerminListenEintrag = {
   id: number;
   title: string;
-  date: Date;
+  /** Raw date string as delivered by the Elternportal HTML */
+  rawDate: string;
+  /** Raw time string (may be empty) as delivered by the Elternportal HTML */
+  rawTime: string | null;
+  /** Start of the exam/appointment (may include time if available) */
+  startDate: Date | null;
+  /** End of the exam/appointment (falls back to start for missing information) */
+  endDate: Date | null;
+  /** Convenience field pointing to startDate to preserve backwards compatibility */
+  date: Date | null;
+  /** Indicates that the event spans whole days (no explicit time information) */
+  allDay: boolean;
+  /** Which type of list the entry originated from */
+  category: TerminListeKategorie;
+};
+
+export type Schulaufgabe = TerminListenEintrag & {
+  category: "schulaufgaben";
+};
+
+export type AllgemeinerTermin = TerminListenEintrag & {
+  category: "allgemein";
+};
+
+type ICalAlarmOption = {
+  trigger: string;
+  description?: string;
+  action?: string;
+};
+
+export type GenerateICalendarOptions = {
+  calendarName: string;
+  calendarColor?: string;
+  schoolIdentifier: string;
+  summaryBuilder?: (entry: TerminListenEintrag, index: number, total: number) => string;
+  descriptionBuilder?: (entry: TerminListenEintrag, index: number, total: number) => string;
+  uidBuilder?: (entry: TerminListenEintrag, index: number, total: number) => string;
+  alarms?:
+    | ICalAlarmOption[]
+    | ((
+        entry: TerminListenEintrag,
+        index: number,
+        total: number
+      ) => ICalAlarmOption[] | undefined);
+  timestamp?: Date;
+  onEvent?: (entry: TerminListenEintrag, index: number, total: number) => boolean | void;
 };
 type Elternbrief = {
   id: number;
@@ -88,6 +137,7 @@ class ElternPortalApiClient {
   password: string = "";
   kidId: number = 0;
   csrf: string = "";
+  private schulaufgabenPlanCategory: TerminListeKategorie | null = null;
   constructor(config: ElternPortalApiClientConfig) {
     this.short = config.short;
     this.username = config.username;
@@ -278,29 +328,254 @@ class ElternPortalApiClient {
   }
 
   async getSchulaufgabenplan(): Promise<Schulaufgabe[]> {
+    const { entries, activeCategory } = await this.fetchTerminListe("schulaufgaben");
+    this.schulaufgabenPlanCategory = activeCategory;
+    if (activeCategory !== "schulaufgaben") {
+      return [];
+    }
+    return entries as Schulaufgabe[];
+  }
+
+  async getAllgemeineTermine(): Promise<AllgemeinerTermin[]> {
+    const { entries, activeCategory } = await this.fetchTerminListe(
+      "allgemein"
+    );
+    if (activeCategory === "allgemein") {
+      return entries as AllgemeinerTermin[];
+    }
+    return entries
+      .filter((entry) => entry.category === "allgemein")
+      .map((entry) => ({ ...entry })) as AllgemeinerTermin[];
+  }
+
+  getSchulaufgabenplanStatus(): TerminListeKategorie | null {
+    return this.schulaufgabenPlanCategory;
+  }
+
+  private async fetchTerminListe(
+    requestedCategory: TerminListeKategorie
+  ): Promise<{ entries: TerminListenEintrag[]; activeCategory: TerminListeKategorie }>
+  {
+    const pathSegment =
+      requestedCategory === "schulaufgaben" ? "schulaufgaben" : "allgemein";
     const { data } = await this.client.request({
       method: "GET",
-      url: `https://${this.short}.eltern-portal.org/service/termine/liste/schulaufgaben#10`,
+      url: `https://${this.short}.eltern-portal.org/service/termine/liste/${pathSegment}#10`,
     });
     const $ = cheerioLoad(data);
-    const schulaufgaben: Schulaufgabe[] = [];
+    const activeCategory = this.detectTerminListenKategorie(
+      $,
+      requestedCategory
+    );
+    const eintraege = this.parseTerminListe($, activeCategory);
+    return { entries: eintraege, activeCategory };
+  }
+
+  private sanitizeHtmlCell(value: string): string {
+    return value
+      .replace(/\r?\n|\t/g, " ")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private extractCellText(cell: any): string {
+    const cloned = cell.clone();
+    cloned.find("br").replaceWith(" ");
+    return this.sanitizeHtmlCell(cloned.text());
+  }
+
+  private detectTerminListenKategorie(
+    $: ReturnType<typeof cheerioLoad>,
+    fallback: TerminListeKategorie
+  ): TerminListeKategorie {
+    const schulaufgabenAktiv = $("#sa_plan").hasClass("btn-primary");
+    const allgemeinAktiv = $("#allg").hasClass("btn-primary");
+    if (schulaufgabenAktiv && !allgemeinAktiv) {
+      return "schulaufgaben";
+    }
+    if (allgemeinAktiv && !schulaufgabenAktiv) {
+      return "allgemein";
+    }
+    if (schulaufgabenAktiv && allgemeinAktiv) {
+      return fallback;
+    }
+    return fallback;
+  }
+
+  private parseTerminListe(
+    $: ReturnType<typeof cheerioLoad>,
+    category: TerminListeKategorie
+  ): TerminListenEintrag[] {
+    const eintraege: TerminListenEintrag[] = [];
 
     $(".container #asam_content .row .no_padding_md .table2 tbody tr").each(
-      (index, element) => {
-        const datum = $(element).find("td").eq(0).text().trim();
-        const titel = $(element).find("td").eq(2).text().trim();
+      (_index, element) => {
+        const cells = $(element).find("td");
+        const rawDate = this.extractCellText(cells.eq(0));
+        const rawTime = this.extractCellText(cells.eq(1));
+        const title = this.extractCellText(cells.eq(2));
 
-        if (titel && datum) {
-          const schaulaufgabe: Schulaufgabe = {
-            id: this.getIdFromTitle(titel),
-            title: titel,
-            date: this.toDate(datum),
-          };
-          schulaufgaben.push(schaulaufgabe);
+        if (!title) {
+          return;
         }
+
+        const { startDate, endDate, allDay } = this.parseSchulaufgabeDateTime(
+          rawDate,
+          rawTime
+        );
+
+        const eintrag: TerminListenEintrag = {
+          id: this.getIdFromTitle(`${title}-${rawDate}-${rawTime ?? ""}`),
+          title,
+          rawDate,
+          rawTime: rawTime || null,
+          startDate,
+          endDate,
+          date: startDate,
+          allDay,
+          category,
+        };
+
+        eintraege.push(eintrag);
       }
     );
-    return schulaufgaben;
+
+    return eintraege;
+  }
+
+  private parseSchulaufgabeDateTime(
+    dateText: string,
+    timeText: string
+  ): { startDate: Date | null; endDate: Date | null; allDay: boolean } {
+    const normalizedDate = dateText.trim();
+    const normalizedTime = timeText.trim();
+
+    if (!normalizedDate) {
+      return { startDate: null, endDate: null, allDay: true };
+    }
+
+    const dateParts = normalizedDate
+      .split(/(?:-|–|—|bis)/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const startDateParts = this.parseGermanDate(dateParts[0]);
+    if (!startDateParts) {
+      return { startDate: null, endDate: null, allDay: true };
+    }
+
+    const endDateParts =
+      dateParts.length > 1
+        ? this.parseGermanDate(dateParts[dateParts.length - 1]) ?? startDateParts
+        : startDateParts;
+
+    const timeParts = normalizedTime
+      ? normalizedTime
+          .split(/(?:-|–|—|bis)/i)
+          .map((part) => part.trim())
+          .filter(Boolean)
+      : [];
+
+    const startTime = timeParts.length > 0 ? this.parseTime(timeParts[0]) : null;
+    const endTime =
+      timeParts.length > 1
+        ? this.parseTime(timeParts[timeParts.length - 1])
+        : null;
+
+    const startDate = new Date(
+      startDateParts.year,
+      startDateParts.month - 1,
+      startDateParts.day,
+      startTime?.hours ?? 0,
+      startTime?.minutes ?? 0,
+      0,
+      0
+    );
+
+    let allDay = !startTime && !endTime;
+    let endDate: Date | null = null;
+
+    if (dateParts.length > 1) {
+      if (endTime) {
+        endDate = new Date(
+          endDateParts.year,
+          endDateParts.month - 1,
+          endDateParts.day,
+          endTime.hours,
+          endTime.minutes,
+          0,
+          0
+        );
+        allDay = false;
+      } else {
+        endDate = new Date(
+          endDateParts.year,
+          endDateParts.month - 1,
+          endDateParts.day,
+          23,
+          59,
+          59,
+          999
+        );
+        allDay = true;
+      }
+    } else if (endTime) {
+      endDate = new Date(
+        startDateParts.year,
+        startDateParts.month - 1,
+        startDateParts.day,
+        endTime.hours,
+        endTime.minutes,
+        0,
+        0
+      );
+      if (endDate.getTime() <= startDate.getTime()) {
+        endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+      }
+    } else if (startTime) {
+      endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+    } else {
+      endDate = new Date(
+        startDateParts.year,
+        startDateParts.month - 1,
+        startDateParts.day,
+        23,
+        59,
+        59,
+        999
+      );
+      allDay = true;
+    }
+
+    return { startDate, endDate, allDay };
+  }
+
+  private parseGermanDate(
+    value: string
+  ): { day: number; month: number; year: number } | null {
+    const match = value.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if (!match) {
+      return null;
+    }
+    const [, day, month, year] = match;
+    return {
+      day: parseInt(day, 10),
+      month: parseInt(month, 10),
+      year: parseInt(year, 10),
+    };
+  }
+
+  private parseTime(value: string): { hours: number; minutes: number } | null {
+    const match = value.match(/(\d{1,2}):(\d{2})/);
+    if (!match) {
+      return null;
+    }
+    const [, hours, minutes] = match;
+    return {
+      hours: parseInt(hours, 10),
+      minutes: parseInt(minutes, 10),
+    };
   }
 
   private getFromAndToParams(from = 0, to = 0): [number, number, number] {
@@ -622,4 +897,139 @@ class ElternPortalApiClient {
   }
 }
 // =========
+function formatDateTimeForICS(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const hours = `${date.getHours()}`.padStart(2, "0");
+  const minutes = `${date.getMinutes()}`.padStart(2, "0");
+  const seconds = `${date.getSeconds()}`.padStart(2, "0");
+  return `${year}${month}${day}T${hours}${minutes}${seconds}`;
+}
+
+function formatDateOnlyForICS(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() + days,
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds(),
+    date.getMilliseconds()
+  );
+  return next;
+}
+
+function sanitizeICalText(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+}
+
+export function generateICalendar(
+  entries: TerminListenEintrag[],
+  options: GenerateICalendarOptions
+): { ics: string; count: number } {
+  const {
+    calendarName,
+    calendarColor = "#FF9500",
+    schoolIdentifier,
+    summaryBuilder,
+    descriptionBuilder,
+    uidBuilder,
+    alarms,
+    timestamp,
+    onEvent,
+  } = options;
+
+  const now = timestamp ?? new Date();
+  const dtstamp = formatDateTimeForICS(now);
+  const total = entries.length;
+
+  let icsContent =
+    "BEGIN:VCALENDAR\r\n" +
+    "VERSION:2.0\r\n" +
+    "PRODID:-//Elternportal//Kalenderexport//DE\r\n" +
+    "METHOD:PUBLISH\r\n" +
+    `X-WR-CALNAME:${sanitizeICalText(calendarName)}\r\n` +
+    `X-APPLE-CALENDAR-COLOR:${calendarColor}\r\n`;
+
+  let exportedCount = 0;
+
+  entries.forEach((entry, index) => {
+    if (!entry.startDate || !entry.endDate) {
+      return;
+    }
+
+    if (onEvent) {
+      const include = onEvent(entry, index, total);
+      if (include === false) {
+        return;
+      }
+    }
+
+    const startDate = entry.startDate;
+    const endDate = entry.endDate;
+    const allDay = entry.allDay;
+
+    const summary = summaryBuilder
+      ? summaryBuilder(entry, index, total)
+      : entry.title;
+    const description = descriptionBuilder
+      ? descriptionBuilder(entry, index, total)
+      : entry.title;
+
+    const uidSeed = uidBuilder
+      ? uidBuilder(entry, index, total)
+      : `${schoolIdentifier}-${entry.id}-${entry.title}-${startDate.toISOString()}-${endDate.toISOString()}`;
+    const uidHash = crypto.createHash("md5").update(uidSeed).digest("hex");
+    const uid = `${uidHash}@${schoolIdentifier}.elternportal`;
+
+    icsContent += "BEGIN:VEVENT\r\n";
+    icsContent += `UID:${uid}\r\n`;
+    icsContent += `DTSTAMP:${dtstamp}\r\n`;
+
+    if (allDay) {
+      const startDateValue = formatDateOnlyForICS(startDate);
+      const endExclusive = addDays(endDate, 1);
+      icsContent += `DTSTART;VALUE=DATE:${startDateValue}\r\n`;
+      icsContent += `DTEND;VALUE=DATE:${formatDateOnlyForICS(endExclusive)}\r\n`;
+    } else {
+      icsContent += `DTSTART;VALUE=DATE-TIME:${formatDateTimeForICS(startDate)}\r\n`;
+      icsContent += `DTEND;VALUE=DATE-TIME:${formatDateTimeForICS(endDate)}\r\n`;
+    }
+
+    icsContent += `SUMMARY:${sanitizeICalText(summary)}\r\n`;
+    icsContent += `DESCRIPTION:${sanitizeICalText(description)}\r\n`;
+    icsContent += "TRANSP:OPAQUE\r\n";
+    icsContent += "STATUS:CONFIRMED\r\n";
+
+    const alarmList =
+      typeof alarms === "function" ? alarms(entry, index, total) ?? [] : alarms ?? [];
+
+    alarmList.forEach((alarm) => {
+      const action = alarm.action || "DISPLAY";
+      icsContent += "BEGIN:VALARM\r\n";
+      icsContent += `ACTION:${action}\r\n`;
+      if (alarm.description) {
+        icsContent += `DESCRIPTION:${sanitizeICalText(alarm.description)}\r\n`;
+      }
+      icsContent += `TRIGGER:${alarm.trigger}\r\n`;
+      icsContent += "END:VALARM\r\n";
+    });
+
+    icsContent += "END:VEVENT\r\n";
+    exportedCount++;
+  });
+
+  icsContent += "END:VCALENDAR";
+
+  return { ics: icsContent, count: exportedCount };
+}
+
 export { ElternPortalApiClient, getElternportalClient };
