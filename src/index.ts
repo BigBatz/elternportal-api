@@ -662,32 +662,71 @@ class ElternPortalApiClient {
 
       const match = datestring.match(/(\d{2})\.(\d{2})\.(\d{4})/);
       if (!match || match.length != 4) {
-        return false;
+        // Skip malformed headers but continue with the remaining days.
+        return;
       }
-      const substitutionDate = new Date(+match[3], +match[2] - 1, +match[1]);
+      // Use UTC so that JSON serialisation does not shift the calendar day.
+      const substitutionDate = new Date(Date.UTC(+match[3], +match[2] - 1, +match[1]));
 
       // find matching table
-      const table = $element.next();
-      if (!table.is("table")) {
-          return false;
+      const table = $element.nextAll("table").first();
+      if (!table || table.length === 0) {
+        // No table following the header – move on to the next header.
+        return;
       }
 
       // row might contain note about 'Keine Vertretungen'
       if (table.has('tr:nth-child(2) td[align=center]:contains(Keine Vertretungen)').length > 0) {
-          return false;
+        // The day explicitly states there are no substitutions; skip but keep iterating.
+        return;
       }
 
       table.find('tr:not(.vp_plan_head)').each((_index, element) => {
         const $element = $(element);
+
+        const subjectCell = $element.find("td:nth-child(4)");
+        const sanitizeSubject = (value: string) =>
+          value
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        // The subject column is rendered as: <span>original</span> substitute.
+        // Clone the cell, remove the span and interpret the remaining text
+        // as the replacement subject.
+        const substituteSubjectRaw = subjectCell
+          .clone()
+          .find("span")
+          .remove()
+          .end()
+          .text();
+        let substituteSubject = sanitizeSubject(substituteSubjectRaw);
+        // Some entries render as "C M" for "C -> M"; pick the last token in this case.
+        if (substituteSubject.includes(" ")) {
+          const tokens = substituteSubject
+            .split(/\s+/)
+            .filter(Boolean);
+          if (tokens.length > 0) {
+            substituteSubject = tokens[tokens.length - 1];
+          }
+        }
+
+        // The strikethrough span contains the original subject. If the span is
+        // missing, fall back to the remaining text to avoid empty fields.
+        const originalSubjectRaw = subjectCell.find("span").first().text();
+        const originalSubjectProcessed = sanitizeSubject(originalSubjectRaw);
+        subjectCell.find("span").remove();
+        const originalSubject = originalSubjectProcessed || sanitizeSubject(subjectCell.text());
+
         vertretungsplan.substitutions.push({
           date: substitutionDate,
           period: Number.parseInt($element.find("td:nth-child(1)").text()),
-          originalTeacher: $element.find("td:nth-child(2)").text(),
-          substituteTeacher: $element.find("td:nth-child(3)").text(),
-          substituteClass: $element.find("td:nth-child(4) span").text().trim(),
-          originalClass: $element.find("td:nth-child(4) span").remove().text().trim(),
-          room: $element.find("td:nth-child(5)").text(),
-          note: $element.find("td:nth-child(6)").text()
+          originalTeacher: $element.find("td:nth-child(2)").text().trim(),
+          substituteTeacher: $element.find("td:nth-child(3)").text().trim(),
+          originalClass: originalSubject || substituteSubject,
+          substituteClass: substituteSubject || originalSubject,
+          room: $element.find("td:nth-child(5)").text().trim(),
+          note: $element.find("td:nth-child(6)").text().trim()
         });
       });
     });

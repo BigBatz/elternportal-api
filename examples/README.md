@@ -55,7 +55,17 @@ node anzeige-kind-schule.js
 # node anzeige-kind-schule.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [--non-interactive]
 ```
 
-### 2. Schulaufgaben als iCal exportieren
+### 2. Basis-Example wie im ursprünglichen README
+
+Minimalbeispiel, das die API so nutzt wie im ursprünglichen Projekt-README beschrieben (ein einzelnes Account-Objekt in `config.js`).
+
+```bash
+npm run basic-original
+# oder
+node basic-original-usage.js
+```
+
+### 3. Schulaufgaben als iCal exportieren
 
 Erstellt für jedes ausgewählte Kind eine ICS-Datei mit allen veröffentlichten Schulaufgaben. Mehrtagige Schulaufgaben werden als Range (inkl. Enddatum) erfasst, Zeitangaben bleiben erhalten.
 
@@ -65,7 +75,7 @@ npm run export-schulaufgaben-ical
 node schulaufgaben-ical.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [--non-interactive]
 ```
 
-### 3. Allgemeine Termine als iCal exportieren
+### 4. Allgemeine Termine als iCal exportieren
 
 Schreibt die allgemeinen (nicht nur schulaufgabenbezogenen) Termine der ausgewählten Accounts in ICS-Dateien. Tages- und Zeitangaben werden korrekt in die ICS übernommen.
 
@@ -75,7 +85,7 @@ npm run export-allgemeine-termine-ical
 node allgemeine-termine-ical.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [--non-interactive]
 ```
 
-### 4. Elternbriefe herunterladen
+### 5. Elternbriefe herunterladen
 
 Lädt Elternbriefe (inkl. Anhänge) pro ausgewähltem Kind und speichert sie strukturiert im Ordner `elternbriefe/`.
 
