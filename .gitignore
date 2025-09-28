@@ -14,6 +14,7 @@ node_modules
 # Lokale Beispiel-Konfigurationen
 examples/config.js
 examples/elternbriefe/
+elternbriefe/
 
 # Generierte Export-Dateien
 *.ics

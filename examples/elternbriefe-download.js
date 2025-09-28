@@ -484,16 +484,6 @@ function parseCliOptions(args) {
   return options;
 }
 
-function shouldIncludeAccount(account) {
-  if (!cliOptions.schools.length) {
-    return true;
-  }
-  const candidates = [account.short, account.schoolName, account.displayName]
-    .filter(Boolean)
-    .map((value) => value.toLowerCase());
-  return cliOptions.schools.some((school) => candidates.includes(school));
-}
-
 function askQuestion(query) {
   if (cliOptions.nonInteractive) {
     return Promise.resolve("");
@@ -509,4 +499,3 @@ function askQuestion(query) {
 }
 
 downloadElternbriefe();
-
