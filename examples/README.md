@@ -69,6 +69,8 @@ node basic-original-usage.js
 
 Erstellt für jedes ausgewählte Kind eine ICS-Datei mit allen veröffentlichten Schulaufgaben. Mehrtagige Schulaufgaben werden als Range (inkl. Enddatum) erfasst, Zeitangaben bleiben erhalten.
 
+> Hinweis: Das Script verlässt sich auf die API-Logik, die nur echte Schulaufgaben liefert. Wenn der Schulaufgaben-Tab im Elternportal nicht sichtbar ist, wird automatisch nichts exportiert und der Status `allgemein` gemeldet.
+
 ```bash
 npm run export-schulaufgaben-ical
 # oder
@@ -78,6 +80,8 @@ node schulaufgaben-ical.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [--non-i
 ### 4. Allgemeine Termine als iCal exportieren
 
 Schreibt die allgemeinen (nicht nur schulaufgabenbezogenen) Termine der ausgewählten Accounts in ICS-Dateien. Tages- und Zeitangaben werden korrekt in die ICS übernommen.
+
+> Die API kennzeichnet alle zurückgegebenen Einträge bereits als `category: "allgemein"`. Eine manuelle Nachfilterung ist nicht nötig.
 
 ```bash
 npm run export-allgemeine-termine-ical
@@ -93,6 +97,18 @@ Lädt Elternbriefe (inkl. Anhänge) pro ausgewähltem Kind und speichert sie str
 npm run download-elternbriefe
 # oder
 node elternbriefe-download.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [--non-interactive]
+
+### 6. Vertretungsplan historisch ablegen
+
+Lädt pro Schule und Kind den aktuellen Vertretungsplan, vergleicht ihn mit vorhandenen JSON-Dateien und fügt neue Einträge automatisch hinzu. Ältere Einträge bleiben erhalten, auch wenn sie im Portal nicht mehr gelistet werden.
+
+```bash
+npm run download-vertretungsplan
+# oder
+node vertretungsplan-download.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [--non-interactive]
+```
+
+> Im Log wird angegeben, ob neue oder geänderte Einträge gefunden wurden (`Stand aktualisiert`, `X neue Einträge` etc.). Die Dateien heißen `vertretungsplan_<klasse>_<vorname>_<nachname>.json`.
 ```
 
 ## CLI-Filter & Optionen
@@ -106,7 +122,7 @@ Bleiben keine Kinder nach Filterung übrig, werden sie (außer in `--non-interac
 
 ## Wiederholte Exporte & Caching
 
-Die Skripte legen pro Kind JSON-Dateien an, z. B. `bekannte-schulaufgaben_klasse-vorname-nachname.json` oder `bekannte-termine_klasse-vorname-nachname.json`. Diese Dateien enthalten die zuletzt exportierten Einträge, damit erneute Läufe nur neue Events anhängen.
+Die Skripte legen pro Kind JSON-Dateien an, z. B. `bekannte-schulaufgaben_klasse-vorname-nachname.json`, `bekannte-termine_klasse-vorname-nachname.json` oder `vertretungsplan_klasse-vorname-nachname.json`. Diese Dateien enthalten die zuletzt exportierten Einträge, sodass erneute Läufe nur Änderungen ergänzen und Historien erhalten bleiben.
 
 ## Funktionen der iCal-Exporte
 

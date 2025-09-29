@@ -8,6 +8,7 @@
     "export-schulaufgaben-ical": "node schulaufgaben-ical.js",
     "export-allgemeine-termine-ical": "node allgemeine-termine-ical.js",
     "download-elternbriefe": "node elternbriefe-download.js",
+    "download-vertretungsplan": "node vertretungsplan-download.js",
     "basic-original": "node basic-original-usage.js"
   },
   "keywords": [

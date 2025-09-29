@@ -328,24 +328,53 @@ class ElternPortalApiClient {
   }
 
   async getSchulaufgabenplan(): Promise<Schulaufgabe[]> {
-    const { entries, activeCategory } = await this.fetchTerminListe("schulaufgaben");
-    this.schulaufgabenPlanCategory = activeCategory;
-    if (activeCategory !== "schulaufgaben") {
+    // Die Terminliste liefert je nach Schule unterschiedliche Tabs. Wir lesen
+    // deshalb die Meta-Informationen aus dem Header und geben nur dann
+    // Schulaufgaben zurück, wenn der Tab tatsächlich angeboten und aktiv ist.
+    const {
+      entries,
+      activeCategory,
+      availableCategories,
+    } = await this.fetchTerminListe("schulaufgaben");
+
+    if (!availableCategories.has("schulaufgaben")) {
+      this.schulaufgabenPlanCategory = "allgemein";
       return [];
     }
-    return entries as Schulaufgabe[];
+
+    if (activeCategory !== "schulaufgaben") {
+      this.schulaufgabenPlanCategory = activeCategory;
+      return [];
+    }
+
+    const schulaufgaben = (entries as Schulaufgabe[]).map((entry) => ({
+      ...entry,
+      category: "schulaufgaben",
+    }));
+
+    if (schulaufgaben.length === 0) {
+      this.schulaufgabenPlanCategory = "allgemein";
+      return [];
+    }
+
+    this.schulaufgabenPlanCategory = "schulaufgaben";
+    return schulaufgaben;
   }
 
   async getAllgemeineTermine(): Promise<AllgemeinerTermin[]> {
-    const { entries, activeCategory } = await this.fetchTerminListe(
-      "allgemein"
-    );
-    if (activeCategory === "allgemein") {
-      return entries as AllgemeinerTermin[];
+    const {
+      entries,
+      availableCategories,
+    } = await this.fetchTerminListe("allgemein");
+
+    if (!availableCategories.has("allgemein")) {
+      return [];
     }
-    return entries
-      .filter((entry) => entry.category === "allgemein")
-      .map((entry) => ({ ...entry })) as AllgemeinerTermin[];
+
+    return (entries as AllgemeinerTermin[]).map((entry) => ({
+      ...entry,
+      category: "allgemein",
+    }));
   }
 
   getSchulaufgabenplanStatus(): TerminListeKategorie | null {
@@ -354,7 +383,11 @@ class ElternPortalApiClient {
 
   private async fetchTerminListe(
     requestedCategory: TerminListeKategorie
-  ): Promise<{ entries: TerminListenEintrag[]; activeCategory: TerminListeKategorie }>
+  ): Promise<{
+    entries: TerminListenEintrag[];
+    activeCategory: TerminListeKategorie;
+    availableCategories: Set<TerminListeKategorie>;
+  }>
   {
     const pathSegment =
       requestedCategory === "schulaufgaben" ? "schulaufgaben" : "allgemein";
@@ -363,12 +396,28 @@ class ElternPortalApiClient {
       url: `https://${this.short}.eltern-portal.org/service/termine/liste/${pathSegment}#10`,
     });
     const $ = cheerioLoad(data);
-    const activeCategory = this.detectTerminListenKategorie(
+    const detection = this.detectTerminListenKategorie(
       $,
       requestedCategory
     );
-    const eintraege = this.parseTerminListe($, activeCategory);
-    return { entries: eintraege, activeCategory };
+    const availableCategories = detection.availableCategories;
+
+    let effectiveCategory: TerminListeKategorie = requestedCategory;
+    if (availableCategories.has(requestedCategory)) {
+      effectiveCategory = requestedCategory;
+    } else if (detection.activeCategory) {
+      effectiveCategory = detection.activeCategory;
+    } else if (availableCategories.size > 0) {
+      effectiveCategory = availableCategories.values().next().value as TerminListeKategorie;
+    }
+
+    const eintraege = this.parseTerminListe($, effectiveCategory);
+
+    return {
+      entries: eintraege,
+      activeCategory: detection.activeCategory ?? effectiveCategory,
+      availableCategories,
+    };
   }
 
   private sanitizeHtmlCell(value: string): string {
@@ -388,19 +437,50 @@ class ElternPortalApiClient {
   private detectTerminListenKategorie(
     $: ReturnType<typeof cheerioLoad>,
     fallback: TerminListeKategorie
-  ): TerminListeKategorie {
-    const schulaufgabenAktiv = $("#sa_plan").hasClass("btn-primary");
-    const allgemeinAktiv = $("#allg").hasClass("btn-primary");
-    if (schulaufgabenAktiv && !allgemeinAktiv) {
-      return "schulaufgaben";
+  ): {
+    activeCategory: TerminListeKategorie | null;
+    availableCategories: Set<TerminListeKategorie>;
+  } {
+    // Tabs liegen als Button-Gruppe im Header. Darüber lassen sich sowohl die
+    // angebotenen Kategorien als auch die aktive Auswahl sicher bestimmen.
+    const buttons = $(".calendar_header .btn-group a");
+    const availableCategories = new Set<TerminListeKategorie>();
+    let active: TerminListeKategorie | null = null;
+
+    buttons.each((_index, element) => {
+      const $button = $(element);
+      const href = $button.attr("href")?.toLowerCase() ?? "";
+      const text = $button.text().toLowerCase();
+      const isSchulaufgaben =
+        href.includes("/schulaufgaben") || text.includes("schulaufgaben");
+      const isAllgemein =
+        href.includes("/allgemein") || text.includes("allgemeine");
+      const isActive = $button.hasClass("btn-primary");
+
+      if (isSchulaufgaben) {
+        availableCategories.add("schulaufgaben");
+        if (isActive) {
+          active = "schulaufgaben";
+        }
+      }
+
+      if (isAllgemein) {
+        availableCategories.add("allgemein");
+        if (isActive) {
+          active = "allgemein";
+        }
+      }
+    });
+
+    if (!active && availableCategories.has(fallback)) {
+      active = fallback;
     }
-    if (allgemeinAktiv && !schulaufgabenAktiv) {
-      return "allgemein";
+
+    if (!active && availableCategories.size === 1) {
+      active = availableCategories.values().next().value as TerminListeKategorie;
     }
-    if (schulaufgabenAktiv && allgemeinAktiv) {
-      return fallback;
-    }
-    return fallback;
+
+    return { activeCategory: active, availableCategories };
   }
 
   private parseTerminListe(
@@ -647,7 +727,7 @@ class ElternPortalApiClient {
       // Convert to a JavaScript Date object
       const [day, month, year] = datePart.split('.').map(Number);
       const [hours, minutes, seconds] = timePart.split(':').map(Number);
-      jsDate = new Date(year, month - 1, day, hours, minutes, seconds);
+      jsDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds));
     }
 
 
@@ -655,6 +735,12 @@ class ElternPortalApiClient {
       lastUpdate: jsDate,
       substitutions: []
     };
+
+    const normalizeHeader = (value: string) =>
+      value
+        .replace(/\u00a0/g, " ")
+        .replace(/[\.\s]+/g, "")
+        .toLowerCase();
 
     $('div.main_center div.list.bold:contains("KW")').each((_index, element) => {
       const $element = $(element);
@@ -681,52 +767,85 @@ class ElternPortalApiClient {
         return;
       }
 
-      table.find('tr:not(.vp_plan_head)').each((_index, element) => {
+      const headerRow = table.find("tr.vp_plan_head").first();
+      const headerCells = headerRow.find("td");
+      const columnIndex = new Map<string, number>();
+      headerCells.each((cellIndex, cell) => {
+        const key = normalizeHeader($(cell).text());
+        if (key) {
+          columnIndex.set(key, cellIndex);
+        }
+      });
+
+      const getIndex = (key: string, fallback: number | null = null) =>
+        columnIndex.has(key) ? columnIndex.get(key)! : fallback;
+
+      const sanitizeText = (value: string) =>
+        value.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+
+      const periodIndex = getIndex("std", 0);
+      const originalTeacherIndex = getIndex("betrifft", null);
+      const substituteTeacherIndex = columnIndex.has("vertretung")
+        ? columnIndex.get("vertretung")!
+        : originalTeacherIndex;
+      const subjectIndex = getIndex("fach", null);
+      const roomIndex = getIndex("raum", null);
+      const infoIndex = getIndex("info", null);
+
+      table.find('tr:not(.vp_plan_head)').each((_rowIndex, element) => {
         const $element = $(element);
-
-        const subjectCell = $element.find("td:nth-child(4)");
-        const sanitizeSubject = (value: string) =>
-          value
-            .replace(/\u00a0/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-
-        // The subject column is rendered as: <span>original</span> substitute.
-        // Clone the cell, remove the span and interpret the remaining text
-        // as the replacement subject.
-        const substituteSubjectRaw = subjectCell
-          .clone()
-          .find("span")
-          .remove()
-          .end()
-          .text();
-        let substituteSubject = sanitizeSubject(substituteSubjectRaw);
-        // Some entries render as "C M" for "C -> M"; pick the last token in this case.
-        if (substituteSubject.includes(" ")) {
-          const tokens = substituteSubject
-            .split(/\s+/)
-            .filter(Boolean);
-          if (tokens.length > 0) {
-            substituteSubject = tokens[tokens.length - 1];
-          }
+        const cells = $element.find("td");
+        if (!cells || cells.length === 0) {
+          return;
         }
 
-        // The strikethrough span contains the original subject. If the span is
-        // missing, fall back to the remaining text to avoid empty fields.
-        const originalSubjectRaw = subjectCell.find("span").first().text();
-        const originalSubjectProcessed = sanitizeSubject(originalSubjectRaw);
-        subjectCell.find("span").remove();
-        const originalSubject = originalSubjectProcessed || sanitizeSubject(subjectCell.text());
+        const getCellText = (index: number | null | undefined) => {
+          if (index == null || index < 0 || index >= cells.length) {
+            return "";
+          }
+          return sanitizeText($(cells.get(index)).text());
+        };
+
+        const subjectCell = subjectIndex != null && subjectIndex >= 0 && subjectIndex < cells.length
+          ? $(cells.get(subjectIndex))
+          : null;
+
+        let substituteSubject = "";
+        let originalSubject = "";
+
+        if (subjectCell && subjectCell.length > 0) {
+          const substituteSubjectRaw = subjectCell
+            .clone()
+            .find("span")
+            .remove()
+            .end()
+            .text();
+          substituteSubject = sanitizeText(substituteSubjectRaw);
+          if (substituteSubject.includes(" ")) {
+            const tokens = substituteSubject.split(/\s+/).filter(Boolean);
+            if (tokens.length > 0) {
+              substituteSubject = tokens[tokens.length - 1];
+            }
+          }
+
+          const originalSubjectRaw = subjectCell.find("span").first().text();
+          const originalSubjectProcessed = sanitizeText(originalSubjectRaw);
+          subjectCell.find("span").remove();
+          originalSubject = originalSubjectProcessed || sanitizeText(subjectCell.text());
+        }
+
+        const periodRaw = getCellText(periodIndex);
+        const period = Number.parseInt(periodRaw, 10);
 
         vertretungsplan.substitutions.push({
           date: substitutionDate,
-          period: Number.parseInt($element.find("td:nth-child(1)").text()),
-          originalTeacher: $element.find("td:nth-child(2)").text().trim(),
-          substituteTeacher: $element.find("td:nth-child(3)").text().trim(),
+          period: Number.isNaN(period) ? 0 : period,
+          originalTeacher: getCellText(originalTeacherIndex),
+          substituteTeacher: getCellText(substituteTeacherIndex),
           originalClass: originalSubject || substituteSubject,
           substituteClass: substituteSubject || originalSubject,
-          room: $element.find("td:nth-child(5)").text().trim(),
-          note: $element.find("td:nth-child(6)").text().trim()
+          room: getCellText(roomIndex),
+          note: getCellText(infoIndex)
         });
       });
     });
