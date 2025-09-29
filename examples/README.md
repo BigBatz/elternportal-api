@@ -109,6 +109,7 @@ node vertretungsplan-download.js [--school=SHORT] [--kid=ID] [--kidName=NAME] [-
 ```
 
 > Im Log wird angegeben, ob neue oder geänderte Einträge gefunden wurden (`Stand aktualisiert`, `X neue Einträge` etc.). Die Dateien heißen `vertretungsplan_<klasse>_<vorname>_<nachname>.json`.
+> Zusätzlich enthält jeder Eintrag ein Feld `summary`, das einen sprechenden Text wie `"4. Stunde Vertretung. E (vorher D), bei GEI (vorher POI), Raum 118"` bereitstellt – ideal für eigene Kalenderimporte.
 ```
 
 ## CLI-Filter & Optionen

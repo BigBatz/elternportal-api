@@ -102,6 +102,8 @@ async function exportKidVertretungsplan({
     return (a.period ?? 0) - (b.period ?? 0);
   });
 
+  // Baue pro Eintrag ein ausführliches Summary, das sich direkt für Kalender
+  // oder Benachrichtigungen verwenden lässt (z. B. "4. Stunde Vertretung. …").
   const exportedEntries = sortedEntries.map((entry) =>
     normalizeSubstitutionEntry({
       date: entry.date,
@@ -190,7 +192,7 @@ async function readExistingPlan(fileName) {
 }
 
 function normalizeSubstitutionEntry(entry) {
-  return {
+  const normalized = {
     date: normalizeIsoTimestamp(entry?.date),
     period: normalizePeriod(entry?.period),
     originalTeacher: normalizeString(entry?.originalTeacher),
@@ -199,6 +201,11 @@ function normalizeSubstitutionEntry(entry) {
     substituteClass: normalizeString(entry?.substituteClass),
     room: normalizeString(entry?.room),
     note: normalizeString(entry?.note),
+  };
+
+  return {
+    ...normalized,
+    summary: buildEntrySummary(normalized),
   };
 }
 
@@ -295,7 +302,8 @@ function areEntriesEqual(a, b) {
     a.originalClass === b.originalClass &&
     a.substituteClass === b.substituteClass &&
     a.room === b.room &&
-    a.note === b.note
+    a.note === b.note &&
+    a.summary === b.summary
   );
 }
 
@@ -371,6 +379,51 @@ function buildChangeSummary({
     parts.push("Stand aktualisiert");
   }
   return parts.join(", ");
+}
+
+function buildEntrySummary(entry) {
+  const base = entry.period ? `${entry.period}. Stunde Vertretung` : "Vertretung";
+
+  const classCurrent = entry.substituteClass || entry.originalClass;
+  const classPrevious =
+    entry.originalClass &&
+    entry.substituteClass &&
+    entry.substituteClass !== entry.originalClass
+      ? entry.originalClass
+      : null;
+  const classSegment = classCurrent
+    ? `${classCurrent}${classPrevious ? ` (vorher ${classPrevious})` : ""}`
+    : null;
+
+  const teacherCurrent = entry.originalTeacher || entry.substituteTeacher;
+  const teacherPrevious =
+    entry.substituteTeacher &&
+    entry.substituteTeacher !== teacherCurrent
+      ? entry.substituteTeacher
+      : null;
+  const teacherSegment = teacherCurrent
+    ? `bei ${teacherCurrent}${teacherPrevious ? ` (vorher ${teacherPrevious})` : ""}`
+    : null;
+
+  const details = [];
+  if (classSegment) {
+    details.push(classSegment);
+  }
+  if (teacherSegment) {
+    details.push(teacherSegment);
+  }
+  if (entry.room) {
+    details.push(`Raum ${entry.room}`);
+  }
+  if (entry.note) {
+    details.push(entry.note);
+  }
+
+  if (details.length === 0) {
+    return base;
+  }
+
+  return `${base}. ${details.join(", ")}`;
 }
 
 function normalizeConfigs(rawConfig) {
