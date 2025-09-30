@@ -33,31 +33,22 @@ export async function putEvent({ calendarUrl, credentials, icsContent, uid }) {
 
   let response = await fetch(url, {
     method: "PUT",
-    headers,
+    headers: {
+      ...headers,
+      "If-None-Match": "*", // nur anlegen, wenn die Ressource noch nicht existiert
+    },
     body: icsContent,
     redirect: "follow",
   });
 
   if (response.status === 412) {
-    // Ressource existiert bereits – versuche sie zu entfernen und erneut anzulegen.
-    const deleteResponse = await fetch(url, {
-      method: "DELETE",
-      headers: {
-        Authorization: buildAuthHeader(credentials),
-      },
-      redirect: "follow",
-    });
-
-    if (!deleteResponse.ok && deleteResponse.status !== 404) {
-      const text = await deleteResponse.text();
-      throw new Error(
-        `Fehler beim DELETE ${url}: ${deleteResponse.status} ${deleteResponse.statusText} ${text}`
-      );
-    }
-
+    // Ressource existiert bereits – versuche sie mit If-Match:* zu überschreiben.
     response = await fetch(url, {
       method: "PUT",
-      headers,
+      headers: {
+        ...headers,
+        "If-Match": "*",
+      },
       body: icsContent,
       redirect: "follow",
     });
