@@ -31,19 +31,21 @@ export async function putEvent({ calendarUrl, credentials, icsContent, uid }) {
     Authorization: buildAuthHeader(credentials),
   };
 
-  let response = await fetch(url, {
-    method: "PUT",
-    headers: {
-      ...headers,
-      "If-None-Match": "*", // nur anlegen, wenn die Ressource noch nicht existiert
-    },
-    body: icsContent,
-    redirect: "follow",
-  });
+  const makePut = async () =>
+    fetch(url, {
+      method: "PUT",
+      headers: {
+        ...headers,
+        "If-None-Match": "*",
+      },
+      body: icsContent,
+      redirect: "follow",
+    });
+
+  let response = await makePut();
 
   if (response.status === 412) {
-    // Ressource existiert bereits oder Server akzeptiert keine If-None-Match-Anfrage.
-    // Entferne den alten Eintrag (ignoriert 404) und lege ihn danach ohne Bedingungen neu an.
+    // Versuch, eine vorhandene Ressource zu entfernen (404 = nichts vorhanden -> ok)
     const deleteResponse = await fetch(url, {
       method: "DELETE",
       headers: {
@@ -59,12 +61,7 @@ export async function putEvent({ calendarUrl, credentials, icsContent, uid }) {
       );
     }
 
-    response = await fetch(url, {
-      method: "PUT",
-      headers,
-      body: icsContent,
-      redirect: "follow",
-    });
+    response = await makePut();
   }
 
   if (!response.ok && response.status !== 204 && response.status !== 201) {
