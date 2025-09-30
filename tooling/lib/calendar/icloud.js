@@ -42,13 +42,26 @@ export async function putEvent({ calendarUrl, credentials, icsContent, uid }) {
   });
 
   if (response.status === 412) {
-    // Ressource existiert bereits – versuche sie mit If-Match:* zu überschreiben.
+    // Ressource existiert bereits oder Server akzeptiert keine If-None-Match-Anfrage.
+    // Entferne den alten Eintrag (ignoriert 404) und lege ihn danach ohne Bedingungen neu an.
+    const deleteResponse = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: buildAuthHeader(credentials),
+      },
+      redirect: "follow",
+    });
+
+    if (!deleteResponse.ok && deleteResponse.status !== 404) {
+      const text = await deleteResponse.text();
+      throw new Error(
+        `Fehler beim DELETE ${url}: ${deleteResponse.status} ${deleteResponse.statusText} ${text}`
+      );
+    }
+
     response = await fetch(url, {
       method: "PUT",
-      headers: {
-        ...headers,
-        "If-Match": "*",
-      },
+      headers,
       body: icsContent,
       redirect: "follow",
     });
