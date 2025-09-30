@@ -37,7 +37,7 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
    docker compose up -d vertretungsplan-runner
    docker compose logs -f vertretungsplan-runner    # optional: Fortschritt beobachten
    ```
-   Die `logging`-Option sorgt dafür, dass maximal fünf Log-Dateien à 10 MB gehalten werden. Stoppen per `docker compose down` oder `docker compose stop vertretungsplan-runner`.
+   Beim Start führt das Skript automatisch `npm install` + `npm run build` im Projekt aus, damit `dist/` aktuell ist. Die `logging`-Option sorgt dafür, dass maximal fünf Log-Dateien à 10 MB gehalten werden. Stoppen per `docker compose down` oder `docker compose stop vertretungsplan-runner`.
 
 5. **(Optional) einmaligen Lauf ausführen** – falls du den Loop nicht dauerhaft brauchst:
    ```bash
