@@ -8,6 +8,7 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
 - `env/` – Ablage für geheime Konfigurationsdateien (liegt in `.gitignore`)
   - `elternportal.env.example` – Beispiel für Elternportal-spezifische Variablen
   - `icloud.env.example` – Beispiel für CalDAV/iCloud Variablen
+- `../tooling/scripts/docker-runner.sh` – Skript, das im Container Export + Sync steuert
 
 ## Schritt-für-Schritt-Anleitung
 
@@ -22,16 +23,14 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
    cp env/elternportal.env.example env/elternportal.env
    cp env/icloud.env.example env/icloud.env
    ```
-   Öffne beide Dateien und trage deine Zugangsdaten ein (`SYNC_INTERVAL` steuert das Loop-Intervall, CalDAV-URLs/App-Passwörter für jedes Kind ergänzen). Für die Elternportalkonfiguration empfiehlt es sich, `tooling/config.example.prod.js` nach `tooling/config.prod.js` zu kopieren und dort die Accounts einzutragen; die Env-Variable `EP_CONFIG` verweist standardmäßig darauf.
+   Öffne beide Dateien und trage deine Zugangsdaten ein (`SYNC_INTERVAL` steuert das Loop-Intervall, CalDAV-URLs/App-Passwörter für jedes Kind ergänzen). Für die Elternportal-Konfiguration kopierst du am besten `../tooling/config.example.prod.js` nach `../tooling/config.prod.js` und trägst dort deine Accounts ein – `EP_CONFIG` zeigt standardmäßig darauf.
 
 3. **Docker Compose Beispiel adaptieren** (optional):
    ```bash
    cp docker-compose.example.yml docker-compose.yml
    mkdir -p ../data          # lokales Archivverzeichnis für JSON-Dateien
    ```
-   Falls du das Archiv woanders speichern möchtest, passe `OUTPUT_DIR` (in
-   `env/elternportal.env`) sowie den Volume-Pfad in `docker-compose.yml`
-   entsprechend an.
+   Falls du das Archiv woanders speichern möchtest, passe `OUTPUT_DIR` (in `env/elternportal.env`) sowie den Volume-Pfad in `docker-compose.yml` entsprechend an. Das Runner-Skript `../tooling/scripts/docker-runner.sh` liest ebenfalls `OUTPUT_DIR` und `SYNC_INTERVAL`; gewünschte Anpassungen kannst du dort vornehmen. Falls die Pfade zu den JSON-Dateien vom Standard (`/data/klasse6a_kind1/vertretungsplan.json` usw.) abweichen, passe sie im Runner-Skript an – die Namen richten sich nach den Slugs, die der Exporter für deine Kinder generiert.
 
 4. **Loop starten** – der Container exportiert und synchronisiert fortlaufend alle `${SYNC_INTERVAL}` Sekunden (Standard 1800 = 30 Minuten). Die Logik steckt in `tooling/scripts/docker-runner.sh`:
    ```bash
