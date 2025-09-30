@@ -1,0 +1,18 @@
+{
+  "name": "elternportal-tooling",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Automation scripts for exporting Elternportal data and syncing calendars",
+  "scripts": {
+    "export": "node scripts/export-plan.js",
+    "sync": "node scripts/sync-calendar.js"
+  },
+  "dependencies": {
+    "@philippdormann/elternportal-api": "file:..",
+    "date-fns-tz": "^2.0.0",
+    "dotenv": "^16.4.5",
+    "ical-generator": "^7.0.8",
+    "yargs": "^17.7.2"
+  }
+}

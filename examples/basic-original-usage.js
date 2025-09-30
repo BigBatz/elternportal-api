@@ -7,7 +7,7 @@ import config from "./config.js";
 
 function resolveLegacyConfig() {
   if (Array.isArray(config.accounts) && config.accounts.length > 0) {
-    return config.accounts[0];
+    return config.accounts[1];
   }
   return config;
 }
@@ -49,6 +49,14 @@ async function main() {
     console.log(JSON.stringify(substitionsPlan, null, 2));
   } catch (error) {
     console.error("❌ Fehler bei getVertretungsplan():", error?.message ?? error);
+  }
+
+  console.log("\n=== getStundenplan() ===");
+  try {
+    const timetable = await client.getStundenplan();
+    console.log(JSON.stringify(timetable, null, 2));
+  } catch (error) {
+    console.error("❌ Fehler bei getStundenplan():", error?.message ?? error);
   }
 
   console.log("\nFertig.");

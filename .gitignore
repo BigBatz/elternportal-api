@@ -20,3 +20,4 @@ elternbriefe/
 *.ics
 bekannte-*.json
 examples/bekannte-*.json
+data/
