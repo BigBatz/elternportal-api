@@ -1,3 +1,13 @@
+/**
+ * Elternportal Tooling – UID Generator
+ *
+ * Zweck: Liefert stabile Identifikatoren für Vertretungs-, Schulaufgaben- und
+ * Termindaten. Wird vom Exporter (`exporters.js`) konsumiert.
+ *
+ * Versionshistorie:
+ * - v1.0.0 (2025-09) – initiale Fassung.
+ */
+
 import crypto from "crypto";
 
 // Hilfsfunktion für zweistellige Zahlen (01, 02, ...)

@@ -13,7 +13,7 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
 
 1. **Repository auf den Zielrechner klonen** (z. B. den Docker-Host):
    ```bash
-   git clone <dein-fork>
+   git clone https://github.com/BigBatz/elternportal-api.git
    cd elternportal-api/docker
    ```
 
@@ -22,20 +22,23 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
    cp env/elternportal.env.example env/elternportal.env
    cp env/icloud.env.example env/icloud.env
    ```
-   - `env/elternportal.env`: Zugangsdaten zum Elternportal sowie optionale Filter (`SYNC_INTERVAL` steuert das Loop-Intervall)
-   - `env/icloud.env`: je Kind CalDAV-URL + iCloud-Login (app-spezifisches Passwort empfohlen)
+   Öffne beide Dateien und trage deine Zugangsdaten ein (`SYNC_INTERVAL` steuert das Loop-Intervall, CalDAV-URLs/App-Passwörter für jedes Kind ergänzen).
 
 3. **Docker Compose Beispiel adaptieren** (optional):
    ```bash
    cp docker-compose.example.yml docker-compose.yml
+   mkdir -p ../data          # lokales Archivverzeichnis für JSON-Dateien
    ```
-   Passe bei Bedarf Pfade oder Klassennamen an (`/data/klasse.../vertretung.json`).
+   Falls du das Archiv woanders speichern möchtest, passe `OUTPUT_DIR` (in
+   `env/elternportal.env`) sowie den Volume-Pfad in `docker-compose.yml`
+   entsprechend an.
 
 4. **Loop starten** – der Container exportiert und synchronisiert fortlaufend alle `${SYNC_INTERVAL}` Sekunden (Standard 1800 = 30 Minuten):
    ```bash
-   docker compose up vertretungsplan-runner
+   docker compose up -d vertretungsplan-runner
+   docker compose logs -f vertretungsplan-runner    # optional: Fortschritt beobachten
    ```
-   Im Hintergrund sorgt der `logging`-Block dafür, dass maximal drei Log-Dateien à 5 MB gehalten werden. Zum Stoppen `Ctrl+C` oder `docker compose down` verwenden.
+   Die `logging`-Option sorgt dafür, dass maximal fünf Log-Dateien à 10 MB gehalten werden. Stoppen per `docker compose down` oder `docker compose stop vertretungsplan-runner`.
 
 5. **(Optional) einmaligen Lauf ausführen** – falls du den Loop nicht dauerhaft brauchst:
    ```bash

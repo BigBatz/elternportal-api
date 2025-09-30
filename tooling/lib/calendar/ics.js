@@ -1,3 +1,14 @@
+/**
+ * Elternportal Tooling – ICS Generator
+ *
+ * Zweck: Baut einzelne ICS-Ereignisse inkl. Reminder/Organizer und liefert
+ * einen Hash zur Änderungsdetektion. Eingesetzt durch
+ * `tooling/scripts/sync-calendar.js`.
+ *
+ * Versionshistorie:
+ * - v1.0.0 (2025-09) – initiale Version für Vertretungsplan-Sync.
+ */
+
 import ical from "ical-generator";
 
 // Wandelt ISO/String/Date in ein Date-Objekt oder null.

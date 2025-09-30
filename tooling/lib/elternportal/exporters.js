@@ -1,3 +1,14 @@
+/**
+ * Elternportal Tooling – Exporter
+ *
+ * Zweck: Liest Vertretungspläne, Schulaufgaben und allgemeine Termine per
+ * API, wandelt sie in ein Archiv-JSON um (inkl. UIDs & Zeitmapping) und
+ * persistiert sie. Genutzt durch `tooling/scripts/export-plan.js`.
+ *
+ * Versionshistorie:
+ * - v1.0.0 (2025-09) – initiale Automations-Fassung.
+ */
+
 import { getElternportalClient } from "@philippdormann/elternportal-api";
 import { buildVertretungsUid, buildSchulaufgabeUid, buildTerminUid } from "./uid.js";
 import { mergeEntries, readPlan, writePlan } from "../storage/json.js";

@@ -1,3 +1,13 @@
+/**
+ * Elternportal Tooling – CalDAV Client-Helfer
+ *
+ * Zweck: Übergibt ICS-Einträge per HTTP an CalDAV-Server (z. B. iCloud).
+ * Wird direkt von `tooling/scripts/sync-calendar.js` verwendet.
+ *
+ * Versionshistorie:
+ * - v1.0.0 (2025-09) – erster Stand für Export/Sync-Pipeline.
+ */
+
 // Hilfsfunktion: erzeugt die endgültige .ics-URL pro UID.
 function buildEventUrl({ calendarUrl, uid }) {
   const normalized = calendarUrl.endsWith("/") ? calendarUrl : `${calendarUrl}/`;

@@ -1,5 +1,13 @@
 #!/usr/bin/env node
-// CLI, das JSON-Einträge in einen CalDAV-Kalender überträgt und Status zurückschreibt.
+/**
+ * Elternportal Tooling – Sync CLI
+ *
+ * Zweck: Synchronisiert JSON-Einträge mit einem CalDAV-Kalender und aktualisiert
+ * den lokalen Status (`lastSyncedAt`, `_syncHash`). Wird für CLI & Docker genutzt.
+ *
+ * Versionshistorie:
+ * - v1.0.0 (2025-09) – initiale CLI-Version.
+ */
 import "dotenv/config";
 import path from "path";
 import { hideBin } from "yargs/helpers";

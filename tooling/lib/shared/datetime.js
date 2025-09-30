@@ -1,3 +1,13 @@
+/**
+ * Elternportal Tooling – Datum/Zeit Helper
+ *
+ * Zweck: Gemeinsame Formatierungsfunktionen für deutsche Zeitangaben.
+ * Eingesetzt in Exporter & Sync-Skript.
+ *
+ * Versionshistorie:
+ * - v1.0.0 (2025-09) – initiale Version.
+ */
+
 // Wandelt ein Datum in eine lokale (de-DE) Kurz-Darstellung um, z. B. "30.09.25, 17:15:00".
 export function formatDateTimeGerman(value) {
   if (!value) {

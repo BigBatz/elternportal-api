@@ -1,3 +1,13 @@
+/**
+ * Elternportal Tooling – JSON Storage
+ *
+ * Zweck: Kapselt das Lesen/Schreiben und Zusammenführen der Plan-Dateien.
+ * Wird von Exporter (`exporters.js`) sowie dem Sync-Skript genutzt.
+ *
+ * Versionshistorie:
+ * - v1.0.0 (2025-09) – erste Version.
+ */
+
 import fs from "fs/promises";
 import path from "path";
 

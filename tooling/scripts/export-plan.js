@@ -1,5 +1,14 @@
 #!/usr/bin/env node
-// CLI für den Export der Elternportal-Daten in JSON-Dateien.
+/**
+ * Elternportal Tooling – Export CLI
+ *
+ * Zweck: Führt den Export-Prozess für Vertretungen, Schulaufgaben oder Termine aus
+ * und speichert die Ergebnisse unterhalb des Archiv-Verzeichnisses.
+ * Verwendung: Direkt via `npm run export` oder aus Docker.
+ *
+ * Versionshistorie:
+ * - v1.0.0 (2025-09) – initiale CLI-Version.
+ */
 import "dotenv/config";
 import path from "path";
 import { fileURLToPath } from "url";
