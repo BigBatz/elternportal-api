@@ -33,7 +33,7 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
    `env/elternportal.env`) sowie den Volume-Pfad in `docker-compose.yml`
    entsprechend an.
 
-4. **Loop starten** – der Container exportiert und synchronisiert fortlaufend alle `${SYNC_INTERVAL}` Sekunden (Standard 1800 = 30 Minuten):
+4. **Loop starten** – der Container exportiert und synchronisiert fortlaufend alle `${SYNC_INTERVAL}` Sekunden (Standard 1800 = 30 Minuten). Die Logik steckt in `tooling/scripts/docker-runner.sh`:
    ```bash
    docker compose up -d vertretungsplan-runner
    docker compose logs -f vertretungsplan-runner    # optional: Fortschritt beobachten

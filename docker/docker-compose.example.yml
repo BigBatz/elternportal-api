@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Endlosschleife: Exportiert und synchronisiert alle Vertretungspläne im festen
 # Intervall (Standard 30 Minuten). Die Verzeichnisse ../workspace (Projekt) und
 # ../data (Archiv) werden in den Container gemountet.
@@ -15,15 +13,7 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-    command: >-
-      sh -c "npm install && echo 'Starte Vertretungsplan-Loop (Intervall ${SYNC_INTERVAL:-1800}s)' && \
-        while true; do \
-          npm run export -- --source vertretung --config $${EP_CONFIG:-../tooling/config.prod.js} --output-dir /data && \
-          npm run sync -- --input /data/klasse6a_kind1/vertretung.json --calendar-url $${CAL_URL_KIND1} --username $${ICLOUD_USER_KIND1} --password $${ICLOUD_PASS_KIND1} && \
-          npm run sync -- --input /data/klasse8e_kind2/vertretung.json --calendar-url $${CAL_URL_KIND2} --username $${ICLOUD_USER_KIND2} --password $${ICLOUD_PASS_KIND2} && \
-          echo "$(date -u) – Warte ${SYNC_INTERVAL:-1800} Sekunden" && \
-          sleep ${SYNC_INTERVAL:-1800}; \
-        done"
+    command: ["sh", "-c", "/workspace/tooling/scripts/docker-runner.sh"]
     env_file:
       - ./env/elternportal.env
       - ./env/icloud.env
