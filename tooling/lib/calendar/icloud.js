@@ -29,7 +29,6 @@ export async function putEvent({ calendarUrl, credentials, icsContent, uid }) {
   const headers = {
     "Content-Type": "text/calendar; charset=utf-8",
     Authorization: buildAuthHeader(credentials),
-    "If-None-Match": "*",
   };
 
   let response = await fetch(url, {
