@@ -18,7 +18,7 @@ services:
     command: >-
       sh -c "npm install && echo 'Starte Vertretungsplan-Loop (Intervall ${SYNC_INTERVAL:-1800}s)' && \
         while true; do \
-          npm run export -- --source vertretung --config $${EP_CONFIG:-../examples/config.js} --output-dir /data && \
+          npm run export -- --source vertretung --config $${EP_CONFIG:-../tooling/config.prod.js} --output-dir /data && \
           npm run sync -- --input /data/klasse6a_kind1/vertretung.json --calendar-url $${CAL_URL_KIND1} --username $${ICLOUD_USER_KIND1} --password $${ICLOUD_PASS_KIND1} && \
           npm run sync -- --input /data/klasse8e_kind2/vertretung.json --calendar-url $${CAL_URL_KIND2} --username $${ICLOUD_USER_KIND2} --password $${ICLOUD_PASS_KIND2} && \
           echo "$(date -u) – Warte ${SYNC_INTERVAL:-1800} Sekunden" && \

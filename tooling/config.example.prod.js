@@ -16,26 +16,14 @@ export default {
       schoolName: "Schule 1",
       username: "elternlogin-kind1",
       password: "passwort-kind1",
-      kids: [
-        {
-          id: 1234,
-          firstName: "Kind1",
-          className: "Klasse 6A",
-        },
-      ],
+      kids: ["Kind1"],
     },
     {
       short: "schule-2",
       schoolName: "Schule 2",
       username: "elternlogin-kind2",
       password: "passwort-kind2",
-      kids: [
-        {
-          id: 5678,
-          firstName: "Kind2",
-          className: "Klasse 8B",
-        },
-      ],
+      kids: ["Kind2"],
     },
   ],
 };

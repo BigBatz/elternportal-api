@@ -22,7 +22,7 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
    cp env/elternportal.env.example env/elternportal.env
    cp env/icloud.env.example env/icloud.env
    ```
-   Öffne beide Dateien und trage deine Zugangsdaten ein (`SYNC_INTERVAL` steuert das Loop-Intervall, CalDAV-URLs/App-Passwörter für jedes Kind ergänzen).
+   Öffne beide Dateien und trage deine Zugangsdaten ein (`SYNC_INTERVAL` steuert das Loop-Intervall, CalDAV-URLs/App-Passwörter für jedes Kind ergänzen). Für die Elternportalkonfiguration empfiehlt es sich, `tooling/config.example.prod.js` nach `tooling/config.prod.js` zu kopieren und dort die Accounts einzutragen; die Env-Variable `EP_CONFIG` verweist standardmäßig darauf.
 
 3. **Docker Compose Beispiel adaptieren** (optional):
    ```bash
