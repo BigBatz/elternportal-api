@@ -43,7 +43,7 @@ run_sync_for_kind() {
   if [ -z "$user" ] || [ -z "$pass" ]; then
     echo "[Runner] Zugangsdaten für Kind ${index} unvollständig – überspringe"
     return 0
-  }
+  fi
 
   eval "uid_prefix=\${CAL_UID_PREFIX_KIND${index}:-${CAL_UID_PREFIX:-}}"
   eval "kid_id=\${CAL_KID_ID_KIND${index}:-}"
@@ -64,30 +64,29 @@ run_sync_for_kind() {
   fi
 
   for source in $(list_sources "$sources_raw" "vertretung"); do
-    sync_args=(
-      --source "$source"
-      --output-dir "$OUTPUT_DIR"
-      --calendar-url "$cal_url"
-      --username "$user"
+    set -- \
+      --source "$source" \
+      --output-dir "$OUTPUT_DIR" \
+      --calendar-url "$cal_url" \
+      --username "$user" \
       --password "$pass"
-    )
 
     if [ -n "$kid_id" ]; then
-      sync_args+=(--kid-id "$kid_id")
+      set -- "$@" --kid-id "$kid_id"
     fi
 
     if [ -n "$kid_name" ]; then
-      sync_args+=(--kid-name "$kid_name")
+      set -- "$@" --kid-name "$kid_name"
     fi
 
     if [ -n "$kid_slug" ]; then
-      sync_args+=(--kid-slug "$kid_slug")
+      set -- "$@" --kid-slug "$kid_slug"
     fi
 
     echo "[Runner] $(date -u) – Sync Kind ${index} (Quelle: $source)"
     (
       cd "$TOOLING_DIR" && \
-        CAL_UID_PREFIX="$uid_prefix" npm run sync -- "${sync_args[@]}"
+        CAL_UID_PREFIX="$uid_prefix" npm run sync -- "$@"
     )
   done
 }
