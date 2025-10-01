@@ -20,6 +20,7 @@ Kopiere `.env.example` nach `.env` und ergänze die benötigten Werte:
 - `CAL_UID_PREFIX`: optionaler Präfix, der nur beim Sync auf die UID geschrieben wird
 - `CAL_SOURCE`: Standardquelle für den Sync (z. B. `vertretung`)
 - `EXPORT_SOURCES`: kommaseparierte Liste, welche Quellen der Docker-Runner exportiert (Standard `vertretung`)
+- `PERIOD_END_OFFSET_MINUTES`: kürzt Perioden-Endzeiten (Standard `1`, vermeidet parallele Darstellung z. B. auf iOS)
 - `REMINDER_MINUTES`, `ORGANIZER_EMAIL`, `ORGANIZER_CN`: optionale Kalender-Parameter
 
 ## Export

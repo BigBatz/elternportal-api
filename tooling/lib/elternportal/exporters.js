@@ -163,6 +163,10 @@ function serializeDate(date) {
 
 // Zeitzone aller Schulzeiten – kann bei Bedarf später konfigurierbar gemacht werden.
 const TIMEZONE = "Europe/Berlin";
+const PERIOD_END_OFFSET_MINUTES = Math.max(
+  0,
+  Number.parseInt(process.env.PERIOD_END_OFFSET_MINUTES ?? "1", 10) || 0
+);
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -238,6 +242,27 @@ function combineDateAndTime(dateValue, timeLabel) {
   return zoned.toISOString();
 }
 
+function subtractMinutesFromIso({ iso, minutes, floorIso }) {
+  if (!iso || typeof iso !== "string") {
+    return iso;
+  }
+  if (!minutes || Number.isNaN(minutes) || minutes <= 0) {
+    return iso;
+  }
+  const endDate = new Date(iso);
+  if (Number.isNaN(endDate.getTime())) {
+    return iso;
+  }
+  const startDate = floorIso ? new Date(floorIso) : null;
+  const offsetMs = minutes * 60 * 1000;
+  const candidate = endDate.getTime() - offsetMs;
+  if (startDate && !Number.isNaN(startDate.getTime()) && candidate <= startDate.getTime()) {
+    return iso;
+  }
+  const adjusted = new Date(candidate);
+  return adjusted.toISOString();
+}
+
 // Fügt den Vertretungs-Einträgen reale Start/Endzeiten hinzu, sofern sie bekannt sind.
 function applyPeriodTimesToEntries(entries, periodTimes) {
   if (!Array.isArray(entries)) {
@@ -261,7 +286,12 @@ function applyPeriodTimesToEntries(entries, periodTimes) {
     }
 
     const startIso = combineDateAndTime(entry.date ?? entry.start, match.start) ?? entry.start;
-    const endIso = combineDateAndTime(entry.date ?? entry.end ?? entry.start, match.end) ?? entry.end ?? startIso;
+    const endIsoRaw = combineDateAndTime(entry.date ?? entry.end ?? entry.start, match.end) ?? entry.end ?? startIso;
+    const endIso = subtractMinutesFromIso({
+      iso: endIsoRaw,
+      minutes: PERIOD_END_OFFSET_MINUTES,
+      floorIso: startIso,
+    });
 
     return {
       ...entry,
@@ -273,6 +303,7 @@ function applyPeriodTimesToEntries(entries, periodTimes) {
         ...entry.metadata,
         periodStartLocal: match.start,
         periodEndLocal: match.end,
+        periodEndOffsetMinutes: PERIOD_END_OFFSET_MINUTES,
       },
     };
   });
