@@ -14,35 +14,36 @@ function addDays(date, days) {
 }
 
 function sanitizeTrigger(trigger) {
+  if (trigger instanceof Date || typeof trigger === "number") {
+    return trigger;
+  }
+
   if (typeof trigger !== "string") {
     return trigger;
   }
 
   const isoMatch = trigger.match(
-    /^-P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i
+    /^([+-])?P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i
   );
   if (!isoMatch) {
     return trigger;
   }
 
-  const [, days, hours, minutes, seconds] = isoMatch.map((value) =>
-    value ? Number.parseInt(value, 10) : 0
-  );
+  const [, sign = "-", daysRaw, hoursRaw, minutesRaw, secondsRaw] = isoMatch;
+  const days = daysRaw ? Number.parseInt(daysRaw, 10) : 0;
+  const hours = hoursRaw ? Number.parseInt(hoursRaw, 10) : 0;
+  const minutes = minutesRaw ? Number.parseInt(minutesRaw, 10) : 0;
+  const seconds = secondsRaw ? Number.parseInt(secondsRaw, 10) : 0;
 
-  if (days) {
-    return { before: days, unit: "days" };
-  }
-  if (hours) {
-    return { before: hours, unit: "hours" };
-  }
-  if (minutes) {
-    return { before: minutes, unit: "minutes" };
-  }
-  if (seconds) {
-    return { before: seconds, unit: "seconds" };
+  const totalSeconds =
+    days * 24 * 60 * 60 + hours * 60 * 60 + minutes * 60 + seconds;
+
+  if (totalSeconds === 0) {
+    return trigger;
   }
 
-  return trigger;
+  const signMultiplier = sign === "-" ? -1 : 1;
+  return totalSeconds * signMultiplier;
 }
 
 export function generateCalendarIcs(entries, options) {
@@ -68,7 +69,7 @@ export function generateCalendarIcs(entries, options) {
 
   calendar.method("PUBLISH");
   if (calendarColor) {
-    calendar.property("X-APPLE-CALENDAR-COLOR", calendarColor);
+    calendar.x("X-APPLE-CALENDAR-COLOR", calendarColor);
   }
 
   const total = entries.length;
