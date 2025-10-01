@@ -3,7 +3,6 @@ import { wrapper } from "axios-cookiejar-support";
 import { load as cheerioLoad } from "cheerio";
 import { JSDOM } from "jsdom";
 import { CookieJar } from "tough-cookie";
-import crypto from "crypto";
 
 type Kid = {
   id: number;
@@ -54,29 +53,6 @@ export type AllgemeinerTermin = TerminListenEintrag & {
   category: "allgemein";
 };
 
-type ICalAlarmOption = {
-  trigger: string;
-  description?: string;
-  action?: string;
-};
-
-export type GenerateICalendarOptions = {
-  calendarName: string;
-  calendarColor?: string;
-  schoolIdentifier: string;
-  summaryBuilder?: (entry: TerminListenEintrag, index: number, total: number) => string;
-  descriptionBuilder?: (entry: TerminListenEintrag, index: number, total: number) => string;
-  uidBuilder?: (entry: TerminListenEintrag, index: number, total: number) => string;
-  alarms?:
-    | ICalAlarmOption[]
-    | ((
-        entry: TerminListenEintrag,
-        index: number,
-        total: number
-      ) => ICalAlarmOption[] | undefined);
-  timestamp?: Date;
-  onEvent?: (entry: TerminListenEintrag, index: number, total: number) => boolean | void;
-};
 type Elternbrief = {
   id: number;
   readConfirmationId: number | undefined;
@@ -1054,140 +1030,4 @@ class ElternPortalApiClient {
     return dom.window.document.body.textContent || "";
   }
 }
-// =========
-function formatDateTimeForICS(date: Date): string {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  const hours = `${date.getHours()}`.padStart(2, "0");
-  const minutes = `${date.getMinutes()}`.padStart(2, "0");
-  const seconds = `${date.getSeconds()}`.padStart(2, "0");
-  return `${year}${month}${day}T${hours}${minutes}${seconds}`;
-}
-
-function formatDateOnlyForICS(date: Date): string {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}${month}${day}`;
-}
-
-function addDays(date: Date, days: number): Date {
-  const next = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate() + days,
-    date.getHours(),
-    date.getMinutes(),
-    date.getSeconds(),
-    date.getMilliseconds()
-  );
-  return next;
-}
-
-function sanitizeICalText(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
-}
-
-export function generateICalendar(
-  entries: TerminListenEintrag[],
-  options: GenerateICalendarOptions
-): { ics: string; count: number } {
-  const {
-    calendarName,
-    calendarColor = "#FF9500",
-    schoolIdentifier,
-    summaryBuilder,
-    descriptionBuilder,
-    uidBuilder,
-    alarms,
-    timestamp,
-    onEvent,
-  } = options;
-
-  const now = timestamp ?? new Date();
-  const dtstamp = formatDateTimeForICS(now);
-  const total = entries.length;
-
-  let icsContent =
-    "BEGIN:VCALENDAR\r\n" +
-    "VERSION:2.0\r\n" +
-    "PRODID:-//Elternportal//Kalenderexport//DE\r\n" +
-    "METHOD:PUBLISH\r\n" +
-    `X-WR-CALNAME:${sanitizeICalText(calendarName)}\r\n` +
-    `X-APPLE-CALENDAR-COLOR:${calendarColor}\r\n`;
-
-  let exportedCount = 0;
-
-  entries.forEach((entry, index) => {
-    if (!entry.startDate || !entry.endDate) {
-      return;
-    }
-
-    if (onEvent) {
-      const include = onEvent(entry, index, total);
-      if (include === false) {
-        return;
-      }
-    }
-
-    const startDate = entry.startDate;
-    const endDate = entry.endDate;
-    const allDay = entry.allDay;
-
-    const summary = summaryBuilder
-      ? summaryBuilder(entry, index, total)
-      : entry.title;
-    const description = descriptionBuilder
-      ? descriptionBuilder(entry, index, total)
-      : entry.title;
-
-    const uidSeed = uidBuilder
-      ? uidBuilder(entry, index, total)
-      : `${schoolIdentifier}-${entry.id}-${entry.title}-${startDate.toISOString()}-${endDate.toISOString()}`;
-    const uidHash = crypto.createHash("md5").update(uidSeed).digest("hex");
-    const uid = `${uidHash}@${schoolIdentifier}.elternportal`;
-
-    icsContent += "BEGIN:VEVENT\r\n";
-    icsContent += `UID:${uid}\r\n`;
-    icsContent += `DTSTAMP:${dtstamp}\r\n`;
-
-    if (allDay) {
-      const startDateValue = formatDateOnlyForICS(startDate);
-      const endExclusive = addDays(endDate, 1);
-      icsContent += `DTSTART;VALUE=DATE:${startDateValue}\r\n`;
-      icsContent += `DTEND;VALUE=DATE:${formatDateOnlyForICS(endExclusive)}\r\n`;
-    } else {
-      icsContent += `DTSTART;VALUE=DATE-TIME:${formatDateTimeForICS(startDate)}\r\n`;
-      icsContent += `DTEND;VALUE=DATE-TIME:${formatDateTimeForICS(endDate)}\r\n`;
-    }
-
-    icsContent += `SUMMARY:${sanitizeICalText(summary)}\r\n`;
-    icsContent += `DESCRIPTION:${sanitizeICalText(description)}\r\n`;
-    icsContent += "TRANSP:OPAQUE\r\n";
-    icsContent += "STATUS:CONFIRMED\r\n";
-
-    const alarmList =
-      typeof alarms === "function" ? alarms(entry, index, total) ?? [] : alarms ?? [];
-
-    alarmList.forEach((alarm) => {
-      const action = alarm.action || "DISPLAY";
-      icsContent += "BEGIN:VALARM\r\n";
-      icsContent += `ACTION:${action}\r\n`;
-      if (alarm.description) {
-        icsContent += `DESCRIPTION:${sanitizeICalText(alarm.description)}\r\n`;
-      }
-      icsContent += `TRIGGER:${alarm.trigger}\r\n`;
-      icsContent += "END:VALARM\r\n";
-    });
-
-    icsContent += "END:VEVENT\r\n";
-    exportedCount++;
-  });
-
-  icsContent += "END:VCALENDAR";
-
-  return { ics: icsContent, count: exportedCount };
-}
-
 export { ElternPortalApiClient, getElternportalClient };

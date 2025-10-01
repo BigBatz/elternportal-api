@@ -1,9 +1,10 @@
 // schulaufgaben-ical.js
-import { getElternportalClient, generateICalendar } from "@philippdormann/elternportal-api";
+import { getElternportalClient } from "@philippdormann/elternportal-api";
 import fs from "fs/promises";
 import readline from "readline";
 import { stdin as input, stdout as output } from "process";
 import config from "./config.js";
+import { generateCalendarIcs } from "./lib/ical.js";
 
 const cliOptions = parseCliOptions(process.argv.slice(2));
 
@@ -118,7 +119,7 @@ async function exportKidCalendar({ client, account, kid, schoolDisplayName }) {
 
   if (newExams.length > 0) {
     const calendarName = `Schulaufgaben ${kid.firstName} (${kid.className}) - ${schoolDisplayName}`;
-    const { ics, count } = generateICalendar(newExams, {
+    const { ics, count } = generateCalendarIcs(newExams, {
       calendarName,
       calendarColor: "#FF9500",
       schoolIdentifier: account.short,
