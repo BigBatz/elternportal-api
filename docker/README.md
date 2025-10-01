@@ -6,8 +6,8 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
 
 - `docker-compose.example.yml` – Vorlage für einen Loop (Export + Sync im Intervall)
 - `env/` – Ablage für geheime Konfigurationen (liegt in `.gitignore`)
-  - `elternportal.env.example` – Elternportal-spezifische Variablen (`EP_CONFIG`, Filter, `OUTPUT_DIR`, `PERIOD_END_OFFSET_MINUTES` …)
-  - `icloud.env.example` – CalDAV/iCloud Variablen (`CAL_URL_KIND*`, `ICLOUD_USER_KIND*`, `CAL_SOURCES_KIND*`, `CAL_UID_PREFIX*` …)
+  - `elternportal.env.example` – Elternportal-spezifische Variablen (`EP_CONFIG`, Filter, `OUTPUT_DIR`, `PERIOD_END_OFFSET_MINUTES`, `SYNC_INTERVAL` …). Der Export nutzt diese Werte, um sich beim Elternportal anzumelden und die JSON-Dateien zu erzeugen.
+  - `icloud.env.example` – CalDAV/iCloud Variablen. Hier definierst du, welcher Export in welchen Kalender geschrieben wird (`CAL_URL_KIND*`, `ICLOUD_USER_KIND*`, `CAL_SOURCES_KIND*`, `CAL_UID_PREFIX*`, ggf. Quelle-spezifische Overrides). Der Docker-Runner liest diese Datei ausschließlich für den Sync.
 - `../tooling/scripts/docker-runner.sh` – führt Export + Sync im Loop aus (liest ausschließlich Umgebungsvariablen, keine Secrets im Log)
 
 ## Schritt-für-Schritt-Anleitung
@@ -24,9 +24,9 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
    cp env/icloud.env.example env/icloud.env
    ```
    Öffne beide Dateien und trage deine Zugangsdaten ein. Wichtige Punkte:
-   - `env/elternportal.env`: `EP_CONFIG` (Pfad zur JS-Konfig), optional Filter (`EP_SCHOOL`, `EP_KID`, `EP_KID_NAME`), `OUTPUT_DIR`, `SYNC_INTERVAL` (Sekunden), `PERIOD_END_OFFSET_MINUTES` (z. B. `1`, verhindert parallele Darstellung auf iOS).
-   - `env/icloud.env`: Für jeden Kalender `CAL_URL_KIND*`, `ICLOUD_USER_KIND*`, `ICLOUD_PASS_KIND*`. Selektor für die passende JSON-Datei per `CAL_KID_NAME_KIND*`, `CAL_KID_ID_KIND*` oder `CAL_KID_SLUG_KIND*`. Mehrere Quellen pro Kalender via `CAL_SOURCES_KIND*=vertretung,termine`; globaler Default über `EXPORT_SOURCES`.
-   - UID-Präfixe nur setzen, wenn du je Kalender eindeutige IDs brauchst (`CAL_UID_PREFIX`, `CAL_UID_PREFIX_KIND*`).
+  - `env/elternportal.env`: Steuerungsdatei für den Export. Enthält `EP_CONFIG` (Pfad zur JS-Konfig), optionale Filter (`EP_SCHOOL`, `EP_KID`, `EP_KID_NAME`), das Zielverzeichnis `OUTPUT_DIR`, `SYNC_INTERVAL` (Sekunden) sowie `PERIOD_END_OFFSET_MINUTES`. Alles, was der Export wissen muss, landet hier.
+  - `env/icloud.env`: Steuerungsdatei für den Sync. Für jedes Ziel (`KIND*`) definierst du die CalDAV-URL und Zugangsdaten (`CAL_URL_KIND*`, `ICLOUD_USER_KIND*`, `ICLOUD_PASS_KIND*`). Über `CAL_SOURCES_KIND*` / `CAL_SOURCE_KIND*` legst du fest, welche Quellen synchronisiert werden. Bei Bedarf überschreibst du pro Quelle die Werte (`CAL_URL_KIND1_VERTRETUNG`, `CAL_URL_KIND1_SCHULAUFGABEN`, …) oder setzt globale Defaults (`CAL_URL_VERTRETUNG`, …). `KIND_COUNT` gibt an, wie viele dieser Blöcke ausgewertet werden.
+  - UID-Präfixe (`CAL_UID_PREFIX`, `CAL_UID_PREFIX_KIND*`, `CAL_UID_PREFIX_KIND*_VERTRETUNG`, …) solltest du nur setzen, wenn deine Kalender eindeutige IDs benötigen (z. B. mehrere Kalender für dasselbe Kind).
    Die Dateien bleiben lokal, da `env/` ignoriert wird – bitte nicht ins Git übernehmen.
 
 3. **Docker Compose Beispiel adaptieren** (optional):
@@ -52,6 +52,17 @@ Dieses Verzeichnis enthält Beispiel-Konfigurationen, um die Tooling-Skripte per
 Die Container mounten das Projektverzeichnis und das zentrale `../data`-Verzeichnis. Dadurch bleiben alle JSON-Dateien archiviert und können anschließend erneut synchronisiert werden.
 
 > Hinweis: `npm install` wird aktuell pro Lauf ausgeführt. Für dauerhafte Setups empfiehlt sich ein angepasstes Dockerfile, das Abhängigkeiten bereits im Image installiert.
+
+## Fallback-Reihenfolge der Variablen
+
+Für jede Quelle (`vertretung`, `schulaufgaben`, `termine`) prüft der Runner die Werte in dieser Reihenfolge:
+
+1. `CAL_*_KIND{n}_{QUELLE}` (z. B. `CAL_URL_KIND1_SCHULAUFGABEN`)
+2. `CAL_*_{QUELLE}` (globale Defaults je Quelle, z. B. `CAL_URL_SCHULAUFGABEN`)
+3. `CAL_*_KIND{n}` (Kindweite Defaults)
+4. `CAL_*` (globale Defaults)
+
+Dabei steht `CAL_*` stellvertretend für `CAL_URL`, `ICLOUD_USER`, `ICLOUD_PASS` und `CAL_UID_PREFIX`. Die Quellenliste selbst folgt der Reihenfolge `CAL_SOURCES_KIND{n}` → `CAL_SOURCE_KIND{n}` → `CAL_SOURCE` → `EXPORT_SOURCES` → `vertretung`.
 
 ## Betrieb & Updates
 

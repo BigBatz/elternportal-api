@@ -2,10 +2,10 @@
 # Docker Runner Script
 # Zweck: Wird im Container aufgerufen, installiert Abhängigkeiten (falls nötig)
 # und führt Export/Sync in einer Endlosschleife aus.
-# Nutzt die Umgebung: EP_CONFIG, OUTPUT_DIR, CAL_URL_KIND*, ICLOUD_USER_KIND*,
-# ICLOUD_PASS_KIND*, CAL_UID_PREFIX, CAL_UID_PREFIX_KIND*, CAL_KID_ID_KIND*,
-# CAL_KID_NAME_KIND*, CAL_KID_SLUG_KIND*, CAL_SOURCE, CAL_SOURCE_KIND*,
-# CAL_SOURCES_KIND*, EXPORT_SOURCES, SYNC_INTERVAL.
+# Nutzt die Umgebung: EP_CONFIG, OUTPUT_DIR, CAL_URL* (global/Kind/Quelle),
+# ICLOUD_USER*, ICLOUD_PASS*, CAL_UID_PREFIX*, CAL_KID_ID_KIND*,
+# CAL_KID_NAME_KIND*, CAL_KID_SLUG_KIND*, CAL_SOURCE*, CAL_SOURCES*,
+# EXPORT_SOURCES, KIND_COUNT, SYNC_INTERVAL.
 
 set -euo pipefail
 
@@ -15,6 +15,7 @@ TOOLING_DIR="/workspace/tooling"
 SYNC_INTERVAL="${SYNC_INTERVAL:-1800}"
 OUTPUT_DIR="${OUTPUT_DIR:-/data}"
 CONFIG_PATH="${EP_CONFIG:-../tooling/config.prod.js}"
+KIND_COUNT="${KIND_COUNT:-2}"
 
 list_sources() {
   local raw="$1"
@@ -30,22 +31,31 @@ list_sources() {
   done
 }
 
+to_upper_key() {
+  printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr ' -' '__'
+}
+
+resolve_for_source() {
+  var="$1"
+  index="$2"
+  source_key="$(to_upper_key "$3")"
+
+  eval "value=\${${var}_KIND${index}_${source_key}:-}"
+  if [ -z "$value" ]; then
+    eval "value=\${${var}_${source_key}:-}"
+  fi
+  if [ -z "$value" ]; then
+    eval "value=\${${var}_KIND${index}:-}"
+  fi
+  if [ -z "$value" ]; then
+    eval "value=\${${var}:-}"
+  fi
+  printf '%s' "$value"
+}
+
 run_sync_for_kind() {
   index="$1"
-  eval "cal_url=\${CAL_URL_KIND${index}:-}"
-  if [ -z "$cal_url" ]; then
-    echo "[Runner] CAL_URL_KIND${index} nicht gesetzt – überspringe Sync ${index}"
-    return 0
-  fi
 
-  eval "user=\${ICLOUD_USER_KIND${index}:-}"
-  eval "pass=\${ICLOUD_PASS_KIND${index}:-}"
-  if [ -z "$user" ] || [ -z "$pass" ]; then
-    echo "[Runner] Zugangsdaten für Kind ${index} unvollständig – überspringe"
-    return 0
-  fi
-
-  eval "uid_prefix=\${CAL_UID_PREFIX_KIND${index}:-${CAL_UID_PREFIX:-}}"
   eval "kid_id=\${CAL_KID_ID_KIND${index}:-}"
   eval "kid_name=\${CAL_KID_NAME_KIND${index}:-}"
   eval "kid_slug=\${CAL_KID_SLUG_KIND${index}:-}"
@@ -63,7 +73,24 @@ run_sync_for_kind() {
     sources_raw="vertretung"
   fi
 
+  any_source_run=false
+
   for source in $(list_sources "$sources_raw" "vertretung"); do
+    cal_url="$(resolve_for_source CAL_URL "$index" "$source")"
+    if [ -z "$cal_url" ]; then
+      echo "[Runner] CAL_URL für Kind ${index} und Quelle ${source} nicht gesetzt – überspringe"
+      continue
+    fi
+
+    user="$(resolve_for_source ICLOUD_USER "$index" "$source")"
+    pass="$(resolve_for_source ICLOUD_PASS "$index" "$source")"
+    if [ -z "$user" ] || [ -z "$pass" ]; then
+      echo "[Runner] Zugangsdaten fehlen für Kind ${index} und Quelle ${source} – überspringe"
+      continue
+    fi
+
+    uid_prefix="$(resolve_for_source CAL_UID_PREFIX "$index" "$source")"
+
     set -- \
       --source "$source" \
       --output-dir "$OUTPUT_DIR" \
@@ -89,7 +116,13 @@ run_sync_for_kind() {
         ICLOUD_PASS="$pass" \
         npm run sync -- "$@"
     )
+
+    any_source_run=true
   done
+
+  if [ "$any_source_run" = false ]; then
+    echo "[Runner] Keine gültigen Sync-Konfigurationen für Kind ${index} gefunden"
+  fi
 }
 
 echo "[Runner] npm install im Projektwurzelverzeichnis..."
@@ -118,8 +151,11 @@ while true; do
     (cd "$TOOLING_DIR" && npm run export -- --source "$source" --config "$CONFIG_PATH" --output-dir "$OUTPUT_DIR")
   done
 
-  run_sync_for_kind 1
-  run_sync_for_kind 2
+  kind_index=1
+  while [ "$kind_index" -le "$KIND_COUNT" ]; do
+    run_sync_for_kind "$kind_index"
+    kind_index=$((kind_index + 1))
+  done
 
   echo "[Runner] $(date -u) – Warte ${SYNC_INTERVAL}s"
   sleep "$SYNC_INTERVAL"
