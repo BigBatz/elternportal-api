@@ -67,9 +67,7 @@ run_sync_for_kind() {
     set -- \
       --source "$source" \
       --output-dir "$OUTPUT_DIR" \
-      --calendar-url "$cal_url" \
-      --username "$user" \
-      --password "$pass"
+      --calendar-url "$cal_url"
 
     if [ -n "$kid_id" ]; then
       set -- "$@" --kid-id "$kid_id"
@@ -86,7 +84,10 @@ run_sync_for_kind() {
     echo "[Runner] $(date -u) – Sync Kind ${index} (Quelle: $source)"
     (
       cd "$TOOLING_DIR" && \
-        CAL_UID_PREFIX="$uid_prefix" npm run sync -- "$@"
+        CAL_UID_PREFIX="$uid_prefix" \
+        ICLOUD_USER="$user" \
+        ICLOUD_PASS="$pass" \
+        npm run sync -- "$@"
     )
   done
 }

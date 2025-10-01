@@ -344,8 +344,12 @@ async function main() {
     });
 
     if (debugCurl) {
+      const maskedPassword = argv.password ? "<hidden>" : "";
+      const authSnippet = argv.username
+        ? `${argv.username}:${maskedPassword}`
+        : "";
       const curlCommand = [
-        `curl -u "${argv.username}:${argv.password}"`,
+        authSnippet ? `curl -u "${authSnippet}"` : "curl",
         '-H "Content-Type: text/calendar; charset=utf-8"',
         '-X PUT',
         "--data-binary @- <<'EOF'",
@@ -356,6 +360,11 @@ async function main() {
 
       console.log("\n[DEBUG] CalDAV cURL Befehl:");
       console.log(curlCommand);
+      if (argv.password) {
+        console.log(
+          "# Hinweis: Passwort wurde ausgeblendet. Setze ICLOUD_PASS in deiner Shell, wenn du den Befehl kopierst."
+        );
+      }
       console.log();
     }
 
