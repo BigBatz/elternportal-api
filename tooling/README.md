@@ -2,6 +2,12 @@
 
 Dieses Verzeichnis enthält Automatisierungen, um Daten aus dem Elternportal zu exportieren und in CalDAV-Kalender (z. B. iCloud) zu synchronisieren.
 
+## Beispielansicht
+
+So sieht der iCloud-Kalender nach dem Sync auf einem iPhone aus – die Vertretungsstunden erscheinen als gebündelte Termine des Tages:
+
+![Vertretungsplan im iPhone-Kalender](../assets/iphone_cal_vertretung.jpeg)
+
 ## Installation
 
 ```bash
