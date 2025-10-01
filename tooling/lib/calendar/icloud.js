@@ -8,6 +8,13 @@
  * - v1.0.0 (2025-09) – erster Stand für Export/Sync-Pipeline.
  */
 
+const debugEnabled = Boolean(process.env.DEBUG_CALDAV);
+const debug = (...args) => {
+  if (debugEnabled) {
+    console.log("[CalDAV]", ...args);
+  }
+};
+
 // Hilfsfunktion: erzeugt die endgültige .ics-URL pro UID.
 function buildEventUrl({ calendarUrl, uid }) {
   const normalized = calendarUrl.endsWith("/") ? calendarUrl : `${calendarUrl}/`;
@@ -31,21 +38,31 @@ export async function putEvent({ calendarUrl, credentials, icsContent, uid }) {
     Authorization: buildAuthHeader(credentials),
   };
 
-  const makePut = async () =>
-    fetch(url, {
+  const makePut = async (extraHeaders = {}, label = "PUT") => {
+    debug(`${label} ${url}`, extraHeaders);
+    const response = await fetch(url, {
       method: "PUT",
       headers: {
         ...headers,
-        "If-None-Match": "*",
+        ...extraHeaders,
       },
       body: icsContent,
       redirect: "follow",
     });
+    debug(`${label} -> ${response.status} ${response.statusText}`);
+    return response;
+  };
 
-  let response = await makePut();
+  let response = await makePut({ "If-None-Match": "*" }, "PUT If-None-Match");
 
   if (response.status === 412) {
-    // Versuch, eine vorhandene Ressource zu entfernen (404 = nichts vorhanden -> ok)
+    // Server verlangt evtl. einen If-Match Header für bestehende Ressourcen.
+    response = await makePut({ "If-Match": "*" }, "PUT If-Match");
+  }
+
+  if (response.status === 412) {
+    // Entferne vorhandene Ressource (404 = nichts vorhanden -> ok) und lege neu an.
+    debug("DELETE previous resource", url);
     const deleteResponse = await fetch(url, {
       method: "DELETE",
       headers: {
@@ -54,6 +71,8 @@ export async function putEvent({ calendarUrl, credentials, icsContent, uid }) {
       redirect: "follow",
     });
 
+    debug(`DELETE -> ${deleteResponse.status} ${deleteResponse.statusText}`);
+
     if (!deleteResponse.ok && deleteResponse.status !== 404) {
       const text = await deleteResponse.text();
       throw new Error(
@@ -61,7 +80,7 @@ export async function putEvent({ calendarUrl, credentials, icsContent, uid }) {
       );
     }
 
-    response = await makePut();
+    response = await makePut({}, "PUT final");
   }
 
   if (!response.ok && response.status !== 204 && response.status !== 201) {
@@ -78,12 +97,14 @@ export async function deleteEvent({ calendarUrl, credentials, uid }) {
   }
 
   const url = buildEventUrl({ calendarUrl, uid });
+  debug(`DELETE request ${url}`);
   const response = await fetch(url, {
     method: "DELETE",
     headers: {
       Authorization: buildAuthHeader(credentials),
     },
   });
+  debug(`DELETE response -> ${response.status} ${response.statusText}`);
 
   if (!response.ok && response.status !== 404) {
     const text = await response.text();

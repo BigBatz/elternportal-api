@@ -168,6 +168,19 @@ function pad(value) {
   return String(value).padStart(2, "0");
 }
 
+function sourceToSlug(source) {
+  switch (source) {
+    case "vertretung":
+      return "vertretungsplan";
+    case "schulaufgaben":
+      return "schulaufgaben";
+    case "termine":
+      return "termine";
+    default:
+      throw new Error(`Unbekannte Quelle: ${source}`);
+  }
+}
+
 function normalizeTimeLabel(label) {
   if (!label) return null;
   const cleaned = label.trim().replace(/h/gi, ":").replace(/\./g, ":");
@@ -373,23 +386,23 @@ export async function exportPlans({
         await client.setKid(kid.id);
       }
 
-      if (source === "vertretung") {
-        const plan = await client.getVertretungsplan();
-        const entries = (plan.substitutions || []).map((entry, index) => {
-          const uid = buildVertretungsUid({
-            schoolShort: schoolIdentifier,
-            kidId: kid.id,
-            date: entry.date,
-            period: entry.period,
-            index,
-          });
-          return {
-            uid,
-            source: "vertretungsplan",
-            date: serializeDate(entry.date),
-            start: serializeDate(entry.date),
-            end: serializeDate(entry.date),
-            allDay: true,
+    if (source === "vertretung") {
+      const plan = await client.getVertretungsplan();
+      const entries = (plan.substitutions || []).map((entry, index) => {
+        const uid = buildVertretungsUid({
+          schoolShort: schoolIdentifier,
+          kidId: kid.id,
+          date: entry.date,
+          period: entry.period,
+          index,
+        });
+        return {
+          uid,
+          source: "vertretungsplan",
+          date: serializeDate(entry.date),
+          start: serializeDate(entry.date),
+          end: serializeDate(entry.date),
+          allDay: true,
             summary: formatVertretungSummary(entry),
             description: buildVertretungDescription({
               kid,
@@ -404,11 +417,11 @@ export async function exportPlans({
               originalClass: entry.originalClass,
               substituteClass: entry.substituteClass,
               room: entry.room,
-              note: entry.note,
-            },
-            period: entry.period,
-          };
-        });
+            note: entry.note,
+          },
+          period: entry.period,
+        };
+      });
 
         await persistPlan({
           outputDir,
@@ -543,12 +556,7 @@ async function persistPlan({
     throw new Error("outputDir ist erforderlich");
   }
   const kidSlug = buildKidSlug(kid);
-  const sourceSlug =
-    source === "vertretung"
-      ? "vertretungsplan"
-      : source === "schulaufgaben"
-      ? "schulaufgaben"
-      : "termine";
+  const sourceSlug = sourceToSlug(source);
 
   const filePath = path.join(outputDir, kidSlug, `${sourceSlug}.json`);
   const existing = await readPlan(filePath);
@@ -600,4 +608,4 @@ async function persistPlan({
   await writePlan(filePath, payload);
 }
 
-export { normalizeConfigs, buildKidSlug };
+export { normalizeConfigs, buildKidSlug, sourceToSlug };
