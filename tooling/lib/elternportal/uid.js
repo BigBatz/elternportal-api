@@ -8,8 +8,6 @@
  * - v1.0.0 (2025-09) – initiale Fassung.
  */
 
-import crypto from "crypto";
-
 // Hilfsfunktion für zweistellige Zahlen (01, 02, ...)
 function pad(value, length = 2) {
   return String(value).padStart(length, "0");
@@ -27,10 +25,25 @@ function formatDateKey(date) {
   return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
 }
 
-// UID für Vertretungen: <school>-kid<id>-<date>-P<period>(-<index>)
-export function buildVertretungsUid({ schoolShort, kidId, date, period, index = 0 }) {
+// UID für Vertretungen: <school>-kid<id>-<date>-P<period>-<classHash>
+export function buildVertretungsUid({
+  schoolShort,
+  kidId,
+  date,
+  period,
+  originalClass,
+  substituteClass,
+}) {
   const base = `${schoolShort}-kid${kidId}-${formatDateKey(date)}-P${pad(period ?? 0)}`;
-  return index > 0 ? `${base}-${pad(index)}` : base;
+  const classToken = (originalClass || substituteClass || "unknown")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 10) || "unknown";
+  return `${base}-${classToken}`;
 }
 
 // UID für Schulaufgaben: <school>-kid<id>-sa<examId>

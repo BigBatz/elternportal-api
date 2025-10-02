@@ -311,7 +311,19 @@ function applyPeriodTimesToEntries(entries, periodTimes) {
 
 // Erzeugt eine kompakte Zusammenfassung für Vertretungen.
 function formatVertretungSummary(entry) {
-  const base = entry.period ? `${entry.period}. Stunde Vertretung` : "Vertretung";
+  const noteText = entry.note ? entry.note.toString().toLowerCase() : "";
+  const isCancellation =
+    noteText.includes("entfällt") ||
+    noteText.includes("fällt aus") ||
+    noteText.includes("entfall") ||
+    noteText.includes("unterrichtsfrei");
+
+  let base;
+  if (entry.period != null) {
+    base = `${entry.period}. Stunde ${isCancellation ? "entfällt" : "Vertretung"}`;
+  } else {
+    base = isCancellation ? "Stunde entfällt" : "Vertretung";
+  }
   const classCurrent = entry.substituteClass || entry.originalClass;
   const classPrevious =
     entry.originalClass &&
@@ -425,7 +437,8 @@ export async function exportPlans({
           kidId: kid.id,
           date: entry.date,
           period: entry.period,
-          index,
+          originalClass: entry.originalClass,
+          substituteClass: entry.substituteClass,
         });
         return {
           uid,
