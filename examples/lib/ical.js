@@ -46,6 +46,77 @@ function sanitizeTrigger(trigger) {
   return totalSeconds * signMultiplier;
 }
 
+function parseGermanDate(raw) {
+  if (typeof raw !== "string") {
+    return null;
+  }
+
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^([0-9]{1,2})\.([0-9]{1,2})\.([0-9]{4})$/);
+  if (!match) {
+    return null;
+  }
+
+  const day = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const year = Number.parseInt(match[3], 10);
+
+  if (
+    Number.isNaN(day) ||
+    Number.isNaN(month) ||
+    Number.isNaN(year) ||
+    day < 1 ||
+    day > 31 ||
+    month < 1 ||
+    month > 12
+  ) {
+    return null;
+  }
+
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function toDate(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolveAllDayStart(entry, fallback) {
+  const rawDate = parseGermanDate(entry?.rawDate);
+  if (rawDate) {
+    return rawDate;
+  }
+
+  const primary = toDate(entry?.date);
+  if (primary) {
+    return new Date(
+      Date.UTC(
+        primary.getUTCFullYear(),
+        primary.getUTCMonth(),
+        primary.getUTCDate()
+      )
+    );
+  }
+
+  if (fallback) {
+    return new Date(
+      Date.UTC(
+        fallback.getUTCFullYear(),
+        fallback.getUTCMonth(),
+        fallback.getUTCDate()
+      )
+    );
+  }
+
+  return null;
+}
+
 export function generateCalendarIcs(entries, options) {
   const {
     calendarName,
@@ -99,12 +170,29 @@ export function generateCalendarIcs(entries, options) {
     const uidHash = createHash("md5").update(uidSeed).digest("hex");
     const uid = `${uidHash}@${schoolIdentifier}.elternportal`;
 
+    let start = toDate(entry.startDate);
+    let end = toDate(entry.endDate);
+
+    if (!start || !end) {
+      return;
+    }
+
+    if (entry.allDay) {
+      const normalizedStart = resolveAllDayStart(entry, start);
+      if (normalizedStart) {
+        start = normalizedStart;
+        end = addDays(normalizedStart, 1);
+      } else {
+        end = addDays(end, 1);
+      }
+    }
+
     const event = calendar.createEvent({
       id: uid,
       summary,
       description,
-      start: entry.startDate,
-      end: entry.allDay ? addDays(entry.endDate, 1) : entry.endDate,
+      start,
+      end,
       allDay: entry.allDay,
       stamp: now,
       transparency: "OPAQUE",
