@@ -314,7 +314,7 @@ function resolveTeacher(short, teacherMap) {
   if (!short) return "";
   if (!teacherMap || typeof teacherMap !== "object") return short;
   const full = teacherMap[short];
-  return full ? `${full} (${short})` : short;
+  return full ? full : short;
 }
 
 // Erzeugt eine kompakte Zusammenfassung für Vertretungen.
