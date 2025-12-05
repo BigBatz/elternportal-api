@@ -18,7 +18,7 @@ type Termin = {
   id: number;
   title: string;
   title_short: string;
-  class: "event-info";
+  class: "event-info" | "event-important" | "event-warning";
   bo_end: 0 | 1;
   startDate: Date;
   endDate: Date;
@@ -93,7 +93,7 @@ type Vertretung = {
   note: string;
 };
 type VertretungsPlan = {
-  lastUpdate: Date|undefined,
+  lastUpdate: Date | undefined,
   substitutions: Vertretung[]
 };
 // =========
@@ -304,37 +304,64 @@ class ElternPortalApiClient {
   }
 
   async getSchulaufgabenplan(): Promise<Schulaufgabe[]> {
-    // Die Terminliste liefert je nach Schule unterschiedliche Tabs. Wir lesen
-    // deshalb die Meta-Informationen aus dem Header und geben nur dann
-    // Schulaufgaben zurück, wenn der Tab tatsächlich angeboten und aktiv ist.
-    const {
-      entries,
-      activeCategory,
-      availableCategories,
-    } = await this.fetchTerminListe("schulaufgaben");
+    // Determine the date range: start from the beginning of the current school year (Aug 1st).
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth(); // 0-11 (August is 7)
 
-    if (!availableCategories.has("schulaufgaben")) {
-      this.schulaufgabenPlanCategory = "allgemein";
-      return [];
-    }
+    // If we are in Aug-Dec, the school year started this year.
+    // If we are in Jan-Jul, the school year started last year.
+    const startYear = currentMonth >= 7 ? currentYear : currentYear - 1;
 
-    if (activeCategory !== "schulaufgaben") {
-      this.schulaufgabenPlanCategory = activeCategory;
-      return [];
-    }
+    const start = new Date(startYear, 7, 1); // Month 7 is August
+    start.setHours(0, 0, 0, 0);
 
-    const schulaufgaben = (entries as Schulaufgabe[]).map((entry) => ({
-      ...entry,
-      category: "schulaufgaben",
-    }));
+    // End date: 6 months from now to look ahead.
+    const end = new Date(now);
+    end.setMonth(end.getMonth() + 6);
 
-    if (schulaufgaben.length === 0) {
-      this.schulaufgabenPlanCategory = "allgemein";
-      return [];
-    }
+    // Fetch all terms via the known API.
+    const termins = await this.getTermine(start.getTime(), end.getTime());
+
+    // Filter events: "event-important" (Schulaufgaben) AND "event-warning" (Kurzarbeiten/Tests).
+    const schulaufgabenTermine = termins.filter((t) =>
+      t.class === "event-important" || t.class === "event-warning"
+    );
+
+    // Map them to the "Schulaufgabe" structure (TerminListenEintrag + category="schulaufgaben").
+    const result: Schulaufgabe[] = schulaufgabenTermine.map((t) => {
+      // Synthesize raw strings for compatibility
+      const day = t.startDate.getDate().toString().padStart(2, "0");
+      const month = (t.startDate.getMonth() + 1).toString().padStart(2, "0");
+      const year = t.startDate.getFullYear();
+      const rawDate = `${day}.${month}.${year}`;
+
+      const hours = t.startDate.getHours().toString().padStart(2, "0");
+      const minutes = t.startDate.getMinutes().toString().padStart(2, "0");
+      // If the time is 00:00, we treat it as no specific time (or all day) for the rawTime string, unless needed.
+      // However, usually detailed exams have a time. Let's provide it.
+      const rawTime = `${hours}:${minutes}`;
+
+      // Heuristic for allDay: if start hours are 00:00.
+      // Alternatively, we could check if start and end cover the full day.
+      // For exams, usually they have a specific start time.
+      const allDay = t.startDate.getHours() === 0 && t.startDate.getMinutes() === 0;
+
+      return {
+        id: t.id,
+        title: t.title,
+        rawDate,
+        rawTime: allDay ? null : rawTime,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        date: t.startDate,
+        allDay,
+        category: "schulaufgaben",
+      };
+    });
 
     this.schulaufgabenPlanCategory = "schulaufgaben";
-    return schulaufgaben;
+    return result;
   }
 
   async getAllgemeineTermine(): Promise<AllgemeinerTermin[]> {
@@ -363,8 +390,7 @@ class ElternPortalApiClient {
     entries: TerminListenEintrag[];
     activeCategory: TerminListeKategorie;
     availableCategories: Set<TerminListeKategorie>;
-  }>
-  {
+  }> {
     const pathSegment =
       requestedCategory === "schulaufgaben" ? "schulaufgaben" : "allgemein";
     const { data } = await this.client.request({
@@ -528,9 +554,9 @@ class ElternPortalApiClient {
 
     const timeParts = normalizedTime
       ? normalizedTime
-          .split(/(?:-|–|—|bis)/i)
-          .map((part) => part.trim())
-          .filter(Boolean)
+        .split(/(?:-|–|—|bis)/i)
+        .map((part) => part.trim())
+        .filter(Boolean)
       : [];
 
     const startTime = timeParts.length > 0 ? this.parseTime(timeParts[0]) : null;
@@ -674,12 +700,12 @@ class ElternPortalApiClient {
         const value = parseInt(values[0]);
         std = value
         const detail = (values[1] || "").replaceAll(".", ":");
-          rows.push({ type: "info", value, detail, std });
-        } else {
+        rows.push({ type: "info", value, detail, std });
+      } else {
         const value = (values[0] || "");
         const detail = (values[1] || "");
-          rows.push({ type: "class", value, detail, std });
-        }
+        rows.push({ type: "class", value, detail, std });
+      }
     });
     // @ts-ignore
     rows = rows.filter((r) => r.std !== null);
@@ -696,7 +722,7 @@ class ElternPortalApiClient {
 
     const lastUpdate = $('div.main_center div:contains("Stand:")').text();
     const dateTimeMatch = lastUpdate.match(/Stand:\s(\d{2}\.\d{2}\.\d{4})\s(\d{2}:\d{2}:\d{2})/);
-    let jsDate : Date|undefined = undefined;
+    let jsDate: Date | undefined = undefined;
     if (dateTimeMatch) {
       const [_, datePart, timePart] = dateTimeMatch;
 
@@ -826,7 +852,7 @@ class ElternPortalApiClient {
       });
     });
     return vertretungsplan;
-  }  
+  }
   /** get lost and found items */
   async getFundsachen(): Promise<string[]> {
     const { data } = await this.client.get(
@@ -858,11 +884,11 @@ class ElternPortalApiClient {
       .get()
       .map((ele) => {
         if (($(ele).find("td:first").html() as string).includes("<h4>")) {
-          
+
           // Suche nach onclick in a oder span
           const clickElement = $(ele).find("[onclick*='eb_bestaetigung']");
           const readConfirmationStringId = clickElement.attr("onclick")
-          ?.match(/eb_bestaetigung\((\d+)\)/)![1] ?? undefined;
+            ?.match(/eb_bestaetigung\((\d+)\)/)![1] ?? undefined;
 
           const readConfirmationId = readConfirmationStringId
             ? parseInt(readConfirmationStringId)
@@ -870,10 +896,10 @@ class ElternPortalApiClient {
 
           // Prüfe, ob es ein a-Element gibt oder nur ein span
           const hasLink = $(ele).find("td:first a").length > 0;
-              
+
           // Extrahiere Titel - entweder aus a h4 oder aus span h4
-          const title = hasLink 
-            ? $(ele).find("td:first a h4").text() 
+          const title = hasLink
+            ? $(ele).find("td:first a h4").text()
             : $(ele).find("td:first span h4").text();
 
 
@@ -895,7 +921,7 @@ class ElternPortalApiClient {
 
           // Link nur, wenn a-Element existiert
           const link = hasLink ? $(ele).find("td:first a").attr("href") : "";
-            
+
           // Datum entweder aus a oder aus span
           let date = "";
           if (hasLink) {
