@@ -309,35 +309,58 @@ function applyPeriodTimesToEntries(entries, periodTimes) {
   });
 }
 
+// Hilfsfunktion: Versucht, ein Kürzel aufzulösen. Fallback: Original-Kürzel.
+function resolveTeacher(short, teacherMap) {
+  if (!short) return "";
+  if (!teacherMap || typeof teacherMap !== "object") return short;
+  const full = teacherMap[short];
+  return full ? `${full} (${short})` : short;
+}
+
 // Erzeugt eine kompakte Zusammenfassung für Vertretungen.
-function formatVertretungSummary(entry) {
+function formatVertretungSummary(entry, teacherMap) {
   const noteText = entry.note ? entry.note.toString().toLowerCase() : "";
   const isCancellation =
     noteText.includes("entfällt") ||
     noteText.includes("fällt aus") ||
     noteText.includes("entfall") ||
     noteText.includes("unterrichtsfrei");
+  const isRoomChange =
+    noteText.includes("raumänderung") &&
+    entry.originalTeacher === entry.substituteTeacher;
+  const isSupervision = noteText.includes("betreuung");
 
-  let base;
-  if (entry.period != null) {
-    base = `${entry.period}. Stunde ${isCancellation ? "entfällt" : "Vertretung"}`;
-  } else {
-    base = isCancellation ? "Stunde entfällt" : "Vertretung";
+  let base = "Vertretung";
+  if (isCancellation) {
+    base = "Stunde entfällt";
+  } else if (isRoomChange) {
+    base = "Raumänderung";
+  } else if (isSupervision) {
+    base = "Betreuung";
   }
+
+  if (entry.period != null) {
+    base = `${entry.period}. Stunde ${base}`;
+  }
+
   const classCurrent = entry.substituteClass || entry.originalClass;
   const classPrevious =
     entry.originalClass &&
-    entry.substituteClass &&
-    entry.substituteClass !== entry.originalClass
+      entry.substituteClass &&
+      entry.substituteClass !== entry.originalClass
       ? entry.originalClass
       : null;
-  const teacherCurrent = entry.substituteTeacher || entry.originalTeacher;
-  const teacherPrevious =
+
+  const teacherCurrentShort = entry.substituteTeacher || entry.originalTeacher;
+  const teacherCurrentResolved = resolveTeacher(teacherCurrentShort, teacherMap);
+
+  const teacherPreviousShort =
     entry.originalTeacher &&
-    entry.substituteTeacher &&
-    entry.originalTeacher !== entry.substituteTeacher
+      entry.substituteTeacher &&
+      entry.originalTeacher !== entry.substituteTeacher
       ? entry.originalTeacher
       : null;
+  const teacherPreviousResolved = resolveTeacher(teacherPreviousShort, teacherMap);
 
   const parts = [];
   if (classCurrent) {
@@ -347,12 +370,14 @@ function formatVertretungSummary(entry) {
         : classCurrent
     );
   }
-  if (teacherCurrent) {
-    parts.push(
-      teacherPrevious && teacherPrevious !== teacherCurrent
-        ? `bei ${teacherCurrent} (vorher ${teacherPrevious})`
-        : `bei ${teacherCurrent}`
-    );
+  if (teacherCurrentShort) {
+    // Bei Raumänderung oder wenn Lehrer identisch ist, Lehrer nur einmal anzeigen (wenn überhaupt relevant)
+    // Bei Vertretung/Betreuung: "bei Neu (vorher Alt)"
+    if (teacherPreviousShort && teacherPreviousShort !== teacherCurrentShort) {
+      parts.push(`bei ${teacherCurrentResolved} (vorher ${teacherPreviousResolved})`);
+    } else {
+      parts.push(`bei ${teacherCurrentResolved}`);
+    }
   }
   if (entry.room) {
     parts.push(`Raum ${entry.room}`);
@@ -363,7 +388,7 @@ function formatVertretungSummary(entry) {
   return parts.length ? `${base}. ${parts.join(", ")}` : base;
 }
 
-function buildVertretungDescription({ kid, school, entry }) {
+function buildVertretungDescription({ kid, school, entry, teacherMap }) {
   const lines = [
     `Schule: ${school.displayName} (${school.identifier})`,
     `Kind: ${kid.firstName ?? ""} ${kid.lastName ?? ""} (${kid.className ?? ""})`,
@@ -372,10 +397,10 @@ function buildVertretungDescription({ kid, school, entry }) {
     lines.push(`Stunde: ${entry.period}`);
   }
   if (entry.originalTeacher) {
-    lines.push(`Original-Lehrer: ${entry.originalTeacher}`);
+    lines.push(`Original-Lehrer: ${resolveTeacher(entry.originalTeacher, teacherMap)}`);
   }
   if (entry.substituteTeacher) {
-    lines.push(`Vertretung: ${entry.substituteTeacher}`);
+    lines.push(`Vertretung: ${resolveTeacher(entry.substituteTeacher, teacherMap)}`);
   }
   if (entry.originalClass) {
     lines.push(`Original-Fach: ${entry.originalClass}`);
@@ -429,29 +454,69 @@ export async function exportPlans({
         await client.setKid(kid.id);
       }
 
-    if (source === "vertretung") {
-      const plan = await client.getVertretungsplan();
-      const entries = (plan.substitutions || []).map((entry, index) => {
-        const uid = buildVertretungsUid({
-          schoolShort: schoolIdentifier,
-          kidId: kid.id,
-          date: entry.date,
-          period: entry.period,
-          originalClass: entry.originalClass,
-          substituteClass: entry.substituteClass,
-        });
-        return {
-          uid,
-          source: "vertretungsplan",
-          date: serializeDate(entry.date),
-          start: serializeDate(entry.date),
-          end: serializeDate(entry.date),
-          allDay: true,
-            summary: formatVertretungSummary(entry),
+      if (source === "vertretung") {
+        const plan = await client.getVertretungsplan();
+
+        // Lehrer-Kürzel auflösen
+        // Wir holen die Infos entweder frisch oder nutzen sie später beim Persistieren aus dem Cache.
+        // Da wir aber für die Generierung der Summaries die Namen JETZT brauchen, müssen wir sie ggf. laden.
+        // Optimierung: Wir schauen erst, ob wir ein existierendes File haben.
+        const kidSlug = buildKidSlug(kid);
+        const sourceSlug = sourceToSlug(source);
+        const filePath = path.join(outputDir, kidSlug, `${sourceSlug}.json`);
+        const existingPlan = await readPlan(filePath);
+
+        let teacherMap = existingPlan?.metadata?.teacherMap || {};
+
+        // Wenn Map leer ist, versuchen wir sie zu laden
+        if (Object.keys(teacherMap).length === 0) {
+          try {
+            const infos = await client.getSchoolInfos();
+            // transform [{ key: "ADL", value: "Name" }, ...] to { "ADL": "Name" }
+            // Filter out entries with null keys or empty values
+            teacherMap = infos.reduce((acc, item) => {
+              if (item.key && item.key.trim() && item.value) {
+                // Manche Werte könnten HTML enthalten (mailto links), hier einfach stumpf übernehmen
+                // oder bereinigen. Im Beispiel oben waren es reine Namen im "Value".
+                // Die "Value" sind oft Namen, aber manchmal auch HTML.
+                // Im Beispiel-Output: { key: "ADL", value: "Susanne Adler-Aschauer" } -> Sauber.
+                // Aber: { key: "E-Mail", value: "<a href...>" } -> Ignorieren wir, da Key kein Kürzel (meistens 3-stellig uppercase).
+                // Wir nehmen an, Lehrer-Kürzel sind 2-4 Zeichen lang und meist Großbuchstaben.
+                // Um sicher zu gehen, nehmen wir alles auf, lookup macht den Rest.
+
+                // Ein simpler Text-Cleanup (HTML Tags raus) schadet nicht.
+                const cleanValue = item.value.replace(/<[^>]*>/g, "").trim();
+                acc[item.key] = cleanValue;
+              }
+              return acc;
+            }, {});
+          } catch (e) {
+            console.warn("Konnte Lehrer-Infos nicht laden, verwende Kürzel.", e.message);
+          }
+        }
+
+        const entries = (plan.substitutions || []).map((entry, index) => {
+          const uid = buildVertretungsUid({
+            schoolShort: schoolIdentifier,
+            kidId: kid.id,
+            date: entry.date,
+            period: entry.period,
+            originalClass: entry.originalClass,
+            substituteClass: entry.substituteClass,
+          });
+          return {
+            uid,
+            source: "vertretungsplan",
+            date: serializeDate(entry.date),
+            start: serializeDate(entry.date),
+            end: serializeDate(entry.date),
+            allDay: true,
+            summary: formatVertretungSummary(entry, teacherMap),
             description: buildVertretungDescription({
               kid,
               school: { identifier: schoolIdentifier, displayName: schoolDisplayName },
               entry,
+              teacherMap,
             }),
             location: entry.room || "",
             metadata: {
@@ -461,11 +526,11 @@ export async function exportPlans({
               originalClass: entry.originalClass,
               substituteClass: entry.substituteClass,
               room: entry.room,
-            note: entry.note,
-          },
-          period: entry.period,
-        };
-      });
+              note: entry.note,
+            },
+            period: entry.period,
+          };
+        });
 
         await persistPlan({
           outputDir,
@@ -478,6 +543,7 @@ export async function exportPlans({
             const timetable = await client.getStundenplan();
             return extractPeriodTimesFromTimetable(timetable);
           },
+          teacherMap, // Map mit übergeben zum Speichern
         });
 
         results.push({ kid, schoolIdentifier, schoolDisplayName, count: entries.length });
@@ -595,6 +661,7 @@ async function persistPlan({
   entries,
   lastUpdate,
   resolvePeriodTimes,
+  teacherMap,
 }) {
   if (!outputDir) {
     throw new Error("outputDir ist erforderlich");
@@ -605,6 +672,10 @@ async function persistPlan({
   const filePath = path.join(outputDir, kidSlug, `${sourceSlug}.json`);
   const existing = await readPlan(filePath);
   let periodTimes = existing?.metadata?.periodTimes ?? null;
+  // Existing teacherMap is effectively used via the passed in teacherMap (which looked it up),
+  // but if we didn't pass one (e.g. other sources), preserve existing.
+  let finalTeacherMap = teacherMap || existing?.metadata?.teacherMap || null;
+
   let processedEntries = entries;
 
   if (source === "vertretung") {
@@ -647,6 +718,10 @@ async function persistPlan({
 
   if (periodTimes && Object.keys(periodTimes).length > 0) {
     payload.metadata.periodTimes = periodTimes;
+  }
+
+  if (finalTeacherMap && Object.keys(finalTeacherMap).length > 0) {
+    payload.metadata.teacherMap = finalTeacherMap;
   }
 
   await writePlan(filePath, payload);
