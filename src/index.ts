@@ -922,21 +922,10 @@ class ElternPortalApiClient {
           // Link nur, wenn a-Element existiert
           const link = hasLink ? $(ele).find("td:first a").attr("href") : "";
 
-          // Datum entweder aus a oder aus span
-          let date = "";
-          if (hasLink) {
-            date = $(ele)
-              .find("td:first a")
-              .text()
-              .replace(`${title} `, "");
-          } else {
-            date = $(ele)
-              .find("td:first span.link_nachrichten")
-              .text()
-              .replace(`${title} `, "")
-              .replace(/\(.*?\)/g, "") // Entferne Text in Klammern
-              .trim();
-          }
+          // Datum mit Regex extrahieren (robuster als String-Replacement)
+          const textContent = $(ele).find("td:first").text();
+          const dateMatch = textContent.match(/(\d{2}\.\d{2}\.\d{4})/);
+          const date = dateMatch ? dateMatch[1] : "";
 
           $(ele).remove("a");
           return {
